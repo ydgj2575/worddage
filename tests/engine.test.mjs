@@ -42,6 +42,10 @@ console.log("\n[1] 初始状态与围墙");
   check("围墙存在且不含门", g.walls.size === 35, g.walls.size);
   check("门位置正确", g.isDoor(12, 8));
   check("「我」在围墙内", g.insideRect(g.player.x, g.player.y));
+  const stone = g.chars.find((c) => c.type === "石");
+  const fire = g.chars.find((c) => c.type === "火");
+  check("「火」位于「石」的正下方", stone && fire && fire.x === stone.x && fire.y === stone.y + 1,
+    stone && fire ? `石(${stone.x},${stone.y}) 火(${fire.x},${fire.y})` : "缺失");
 }
 
 console.log("\n[2] 基础移动 / 阻挡");
