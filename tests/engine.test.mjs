@@ -3,6 +3,7 @@
  * 运行：node tests/engine.test.mjs
  */
 import { Game, DEFAULT_LEVEL } from "../js/engine.js";
+import { computeLayout, computeCamera } from "../js/art.js";
 
 let pass = 0;
 let fail = 0;
@@ -37,11 +38,12 @@ const seq = (g, moves) => moves.split("").map((m) => {
 console.log("\n[1] 初始状态与围墙");
 {
   const g = new Game();
-  check("玩家初始位置正确", g.player.x === 7 && g.player.y === 8, `${g.player.x},${g.player.y}`);
-  check("初始字数量正确", g.chars.length === 6, g.chars.length);
-  check("围墙存在且不含门", g.walls.size === 35, g.walls.size);
-  check("门位置正确", g.isDoor(12, 8));
+  check("玩家初始位置正确", g.player.x === 45 && g.player.y === 29, `${g.player.x},${g.player.y}`);
+  check("初始字数量正确", g.chars.length === 14, g.chars.length);
+  check("围墙存在且不含门", g.walls.size === 173, g.walls.size);
+  check("门位置正确", g.isDoor(53, 27));
   check("「我」在围墙内", g.insideRect(g.player.x, g.player.y));
+  check("地图面积约为旧版 17×11 的 10 倍", g.cols * g.rows >= 10 * 17 * 11, g.cols * g.rows);
   const stone = g.chars.find((c) => c.type === "石");
   const fire = g.chars.find((c) => c.type === "火");
   check("「火」位于「石」的正下方", stone && fire && fire.x === stone.x && fire.y === stone.y + 1,
@@ -51,11 +53,24 @@ console.log("\n[1] 初始状态与围墙");
 console.log("\n[2] 基础移动 / 阻挡");
 {
   const g = new Game();
-  g.move("down"); // (7,9) 是墙
-  check("撞墙不能移动", g.player.x === 7 && g.player.y === 8);
   g.move("left");
-  check("空地可以移动", g.player.x === 6 && g.player.y === 8);
-  check("步数累计", g.steps === 1, g.steps);
+  check("空地可以移动", g.player.x === 44 && g.player.y === 29, `${g.player.x},${g.player.y}`);
+  g.move("down");
+  check("可以继续移动", g.player.x === 44 && g.player.y === 30);
+  check("步数累计", g.steps === 2, g.steps);
+  // 用一堵自建小墙测试阻挡
+  const g2 = new Game(
+    makeLevel({
+      cols: 5,
+      rows: 5,
+      wallRect: { x1: 1, y1: 1, x2: 3, y2: 3 },
+      player: { x: 2, y: 2 },
+      chars: [],
+    })
+  );
+  const before = g2.fingerprint();
+  g2.move("left"); // (1,2) 是墙
+  check("撞墙不能移动", g2.fingerprint() === before && g2.steps === 0);
 }
 
 console.log("\n[3] 推动字");
@@ -252,14 +267,14 @@ console.log("\n[12] 撤销 / 重置");
   g.undo();
   check("撤销恢复上一步", g.fingerprint() === before);
   g.reset();
-  check("重置回到初始状态", g.player.x === 7 && g.player.y === 8 && g.steps === 0);
+  check("重置回到初始状态", g.player.x === 45 && g.player.y === 29 && g.steps === 0);
 }
 
-console.log("\n[13] 完整关卡通关（策划案路线，29 步）");
+console.log("\n[13] 完整关卡通关（策划案路线，22 步）");
 {
   const g = new Game();
-  // L L U U U L U L U R D R R L U U R D D D L D R R R R R R R
-  const moves = "LLUUULULURDRRLUURDDDLDRRRRRRR".split("").map((m) => ({ L: "left", R: "right", U: "up", D: "down" }[m]));
+  // L L L U U L L U U + R×13
+  const moves = ("LLLUULLUU" + "R".repeat(13)).split("").map((m) => ({ L: "left", R: "right", U: "up", D: "down" }[m]));
   let win = false;
   for (const m of moves) {
     g.move(m);
@@ -269,9 +284,41 @@ console.log("\n[13] 完整关卡通关（策划案路线，29 步）");
     }
   }
   check("按路线可以推开围墙门通关", win === true && g.winReason === "door", g.winReason);
-  check("最终步数与路线一致", g.steps === 29, g.steps);
+  check("最终步数与路线一致", g.steps === 22, g.steps);
   check("钥已用于开门", !g.hasChar("钥"));
-  check("关卡初始数据完整", DEFAULT_LEVEL.chars.length === 6);
+  check("关卡初始数据完整", DEFAULT_LEVEL.chars.length === 14);
+}
+
+console.log("\n[14] 摄像机 / 大地图视口");
+{
+  const g = new Game();
+  const layout = computeLayout(g, 960, 640);
+  check("世界尺寸远大于屏幕（只能看到一部分地图）",
+    layout.worldW > 960 * 2 && layout.worldH > 640 * 2,
+    `${Math.round(layout.worldW)}x${Math.round(layout.worldH)}`);
+  check("屏幕约显示 17×11 格", Math.floor(960 / layout.cell) <= 18 && Math.floor(960 / layout.cell) >= 16,
+    Math.floor(960 / layout.cell));
+
+  // 地图内部：摄像机让「我」居中
+  const centerGame = { ...g, player: { x: 27, y: 17 } };
+  const cam = computeCamera(centerGame, layout);
+  const px = (27 + 0.5) * layout.cell - cam.x;
+  const py = (17 + 0.5) * layout.cell - cam.y;
+  check("地图内部时摄像机把「我」放在屏幕中央",
+    Math.abs(px - 960 / 2) < 1 && Math.abs(py - 640 / 2) < 1, `${px.toFixed(1)},${py.toFixed(1)}`);
+
+  // 靠近左上边缘：摄像机夹紧，不会露出地图外
+  const edgeGame = { ...g, player: { x: 1, y: 1 } };
+  const camEdge = computeCamera(edgeGame, layout);
+  check("靠近地图边缘时摄像机夹紧（不越界）", camEdge.x === 0 && camEdge.y === 0,
+    `${camEdge.x},${camEdge.y}`);
+
+  // 靠近右下边缘：摄像机夹到世界末端
+  const brGame = { ...g, player: { x: g.cols - 2, y: g.rows - 2 } };
+  const camBR = computeCamera(brGame, layout);
+  check("右下角摄像机夹紧在世界内",
+    camBR.x <= layout.worldW - 960 + 0.01 && camBR.y <= layout.worldH - 640 + 0.01,
+    `${camBR.x.toFixed(1)},${camBR.y.toFixed(1)}`);
 }
 
 console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项\n`);

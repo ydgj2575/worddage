@@ -3,7 +3,7 @@
  * 负责：画布尺寸/DPR、键盘与滑动输入、HUD 与弹窗、音效、反应特效调度。
  */
 import { Game, RULE_HINTS, TYPE_INFO } from "./engine.js";
-import { computeLayout, drawScene } from "./art.js";
+import { computeLayout, computeCamera, drawScene } from "./art.js";
 
 const $ = (id) => (typeof document !== "undefined" ? document.getElementById(id) : null);
 
@@ -29,6 +29,8 @@ const els = {
 const game = new Game();
 const fx = [];
 let layout = null;
+let camera = null; // 摄像机（跟随「我」，平滑插值）
+let lastNow = 0;
 let width = 960;
 let height = 640;
 let bestSteps = 0;
@@ -113,6 +115,25 @@ function resize() {
   canvas.height = Math.round(h * dpr);
   if (ctx && ctx.setTransform) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   layout = computeLayout(game, w, h);
+  camera = computeCamera(game, layout); // 尺寸变化时直接对准「我」
+}
+
+/* ------------------------------------------------------------------ */
+/* 摄像机：始终跟随「我」，移动时平滑插值                              */
+/* ------------------------------------------------------------------ */
+function updateCamera(dt) {
+  if (!layout) return;
+  const target = computeCamera(game, layout);
+  if (!camera) {
+    camera = { x: target.x, y: target.y };
+    return;
+  }
+  const k = 1 - Math.pow(0.0015, Math.max(0.001, Math.min(dt, 0.05)));
+  camera.x += (target.x - camera.x) * k;
+  camera.y += (target.y - camera.y) * k;
+  // 避免浮点误差导致越界
+  if (Math.abs(target.x - camera.x) < 0.15) camera.x = target.x;
+  if (Math.abs(target.y - camera.y) < 0.15) camera.y = target.y;
 }
 
 /* ------------------------------------------------------------------ */
@@ -236,6 +257,7 @@ function doUndo() {
   fx.length = 0;
   hideWin();
   syncHud();
+  if (layout) camera = computeCamera(game, layout); // 撤销后直接对准「我」
   sfx.move();
 }
 
@@ -244,6 +266,7 @@ function doRestart() {
   fx.length = 0;
   hideWin();
   syncHud();
+  if (layout) camera = computeCamera(game, layout);
   sfx.move();
 }
 
@@ -341,12 +364,15 @@ function buildRulesPanel() {
 function frame(now) {
   if (!layout) resize();
   if (ctx && layout) {
+    const dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0.016;
+    lastNow = now;
+    updateCamera(dt);
     const t = now / 1000;
     // 清理过期特效
     for (let i = fx.length - 1; i >= 0; i--) {
       if (now - fx[i].t0 > fx[i].duration) fx.splice(i, 1);
     }
-    drawScene(ctx, game, { layout, width, height, time: t, fx });
+    drawScene(ctx, game, { layout, camera: camera || computeCamera(game, layout), width, height, time: t, fx });
   }
   if (typeof requestAnimationFrame !== "undefined") requestAnimationFrame(frame);
 }

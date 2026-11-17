@@ -146,13 +146,13 @@ const keyHandler = (listeners.window.filter((l) => l.type === "keydown").pop() |
 check("已注册键盘监听", typeof keyHandler === "function");
 const preventDefault = () => {};
 keyHandler({ key: "ArrowLeft", preventDefault });
-check("方向键可以移动「我」", game.player.x === 6 && game.player.y === 8, `${game.player.x},${game.player.y}`);
+check("方向键可以移动「我」", game.player.x === 44 && game.player.y === 29, `${game.player.x},${game.player.y}`);
 check("HUD 步数更新", elements.steps.textContent.includes("步数 1"), elements.steps.textContent);
 keyHandler({ key: "z", preventDefault });
-check("Z 撤销", game.player.x === 7 && game.steps === 0, `${game.player.x},${game.steps}`);
+check("Z 撤销", game.player.x === 45 && game.steps === 0, `${game.player.x},${game.steps}`);
 
 console.log("\n[4] 通关流程（用完整路线）");
-const moves = "LLUUULULURDRRLUURDDDLDRRRRRRR".split("");
+const moves = ("LLLUULLUU" + "R".repeat(13)).split("");
 for (const m of moves) {
   doMove({ L: "left", R: "right", U: "up", D: "down" }[m]);
 }
@@ -160,12 +160,12 @@ check("路线执行后游戏胜利", game.status === "won" && game.winReason ===
 await new Promise((r) => setTimeout(r, 650));
 check("通关弹窗显示", !elements["win-overlay"].classList.contains("hidden"));
 check("弹窗标题正确", elements["win-title"].textContent === "门开了", elements["win-title"].textContent);
-check("弹窗显示步数", elements["win-steps"].textContent.includes("29"), elements["win-steps"].textContent);
-check("最佳步数写入 localStorage", storage.get("worddage:best") === "29", storage.get("worddage:best"));
+check("弹窗显示步数", elements["win-steps"].textContent.includes("22"), elements["win-steps"].textContent);
+check("最佳步数写入 localStorage", storage.get("worddage:best") === "22", storage.get("worddage:best"));
 
 console.log("\n[5] 重开");
 doRestart();
-check("重开后回到初始状态", game.player.x === 7 && game.steps === 0 && game.status === "playing");
+check("重开后回到初始状态", game.player.x === 45 && game.steps === 0 && game.status === "playing");
 check("重开后隐藏弹窗", elements["win-overlay"].classList.contains("hidden"));
 
 console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项\n`);

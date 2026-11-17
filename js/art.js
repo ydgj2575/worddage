@@ -1,39 +1,52 @@
 /**
- * 文字游戏 · 渲染层（Canvas 2D）
- * 负责把 Game 状态画成"纸上墨字"的样式，并播放合成/破墙的反应特效。
+ * 文字游戏 · 渲染层（Canvas 2D）—— 大地图 + 摄像机跟随版
+ * 世界是 54×35 格的大地图，屏幕只显示约 17×11 格；
+ * 摄像机跟随「我」移动，右上角有小地图。
  */
 import { TYPE_INFO } from "./engine.js";
 
 const PAPER = "#f4ead6";
-const PAPER_DARK = "#e8dbc0";
 const INK = "#2b3540";
 
 const CHAR_FONT =
   '"Noto Serif SC","Songti SC","STSong","SimSun","Microsoft YaHei",serif';
-
 const FONT_UI = '"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif';
 
-/** 计算棋盘布局：把 cols×rows 网格等比装进画布并居中 */
+/** 视口大约显示多少格（决定缩放；地图远大于它，所以只能看到一部分） */
+const VIEW_COLS = 17;
+const VIEW_ROWS = 11;
+
+function clamp(v, lo, hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** 计算缩放：cell 为世界格子在屏幕上的像素大小 */
 export function computeLayout(game, width, height) {
-  const padX = Math.max(18, width * 0.035);
-  const padY = Math.max(18, height * 0.03);
-  const cell = Math.min((width - padX * 2) / game.cols, (height - padY * 2) / game.rows);
-  const gw = cell * game.cols;
-  const gh = cell * game.rows;
+  const padX = Math.max(14, width * 0.02);
+  const padY = Math.max(14, height * 0.02);
+  const cell = Math.min((width - padX * 2) / VIEW_COLS, (height - padY * 2) / VIEW_ROWS);
   return {
     cell,
-    ox: (width - gw) / 2,
-    oy: (height - gh) / 2,
-    gw,
-    gh,
+    width,
+    height,
+    worldW: game.cols * cell,
+    worldH: game.rows * cell,
   };
 }
 
-function center(layout, x, y) {
-  return {
-    cx: layout.ox + (x + 0.5) * layout.cell,
-    cy: layout.oy + (y + 0.5) * layout.cell,
-  };
+/** 摄像机目标位置：让「我」居中，并夹在世界范围内 */
+export function computeCamera(game, layout) {
+  const { cell, worldW, worldH, width, height } = layout;
+  const tx = (game.player.x + 0.5) * cell - width / 2;
+  const ty = (game.player.y + 0.5) * cell - height / 2;
+  const cx = worldW <= width ? (worldW - width) / 2 : clamp(tx, 0, worldW - width);
+  const cy = worldH <= height ? (worldH - height) / 2 : clamp(ty, 0, worldH - height);
+  return { x: cx, y: cy };
+}
+
+/** 世界坐标（格子左上角）→ 屏幕坐标 */
+function worldToScreen(layout, camera, wx, wy) {
+  return { x: wx * layout.cell - camera.x, y: wy * layout.cell - camera.y };
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -47,7 +60,6 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-/** 画纸张底纹（一次性生成缓存到离屏也行，这里直接画，成本很低） */
 function drawPaper(ctx, w, h) {
   const g = ctx.createLinearGradient(0, 0, w, h);
   g.addColorStop(0, "#f7efde");
@@ -56,7 +68,6 @@ function drawPaper(ctx, w, h) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
 
-  // 纸张纤维
   ctx.save();
   ctx.globalAlpha = 0.05;
   ctx.strokeStyle = "#8a744f";
@@ -71,7 +82,6 @@ function drawPaper(ctx, w, h) {
   }
   ctx.restore();
 
-  // 四周暗角
   const v = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
   v.addColorStop(0, "rgba(0,0,0,0)");
   v.addColorStop(1, "rgba(70,52,24,0.16)");
@@ -79,31 +89,41 @@ function drawPaper(ctx, w, h) {
   ctx.fillRect(0, 0, w, h);
 }
 
-function drawGrid(ctx, game, layout) {
-  const { cell, ox, oy, gw, gh } = layout;
+function drawGrid(ctx, game, layout, camera) {
+  const { cell, width, height } = layout;
+  const x0 = Math.max(0, Math.floor(camera.x / cell));
+  const x1 = Math.min(game.cols, Math.ceil((camera.x + width) / cell));
+  const y0 = Math.max(0, Math.floor(camera.y / cell));
+  const y1 = Math.min(game.rows, Math.ceil((camera.y + height) / cell));
+
   ctx.save();
   ctx.strokeStyle = "rgba(110,85,48,0.10)";
   ctx.lineWidth = 1;
-  for (let x = 0; x <= game.cols; x++) {
+  for (let x = x0; x <= x1; x++) {
+    const sx = x * cell - camera.x;
     ctx.beginPath();
-    ctx.moveTo(ox + x * cell, oy);
-    ctx.lineTo(ox + x * cell, oy + gh);
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, height);
     ctx.stroke();
   }
-  for (let y = 0; y <= game.rows; y++) {
+  for (let y = y0; y <= y1; y++) {
+    const sy = y * cell - camera.y;
     ctx.beginPath();
-    ctx.moveTo(ox, oy + y * cell);
-    ctx.lineTo(ox + gw, oy + y * cell);
+    ctx.moveTo(0, sy);
+    ctx.lineTo(width, sy);
     ctx.stroke();
   }
-  // 围墙矩形的淡淡底影，突出"被困住"的场地
+
+  // 围墙矩形淡影（整个院落）
   const r = game.wallRect;
-  ctx.fillStyle = "rgba(120,96,58,0.06)";
-  ctx.fillRect(ox + r.x1 * cell, oy + r.y1 * cell, (r.x2 - r.x1 + 1) * cell, (r.y2 - r.y1 + 1) * cell);
+  const a = worldToScreen(layout, camera, r.x1, r.y1);
+  const b = worldToScreen(layout, camera, r.x2 + 1, r.y2 + 1);
+  ctx.fillStyle = "rgba(120,96,58,0.05)";
+  ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
   ctx.restore();
 }
 
-function wallTile(ctx, cx, cy, cell, time) {
+function wallTile(ctx, cx, cy, cell) {
   const s = cell * 0.84;
   roundRect(ctx, cx - s / 2, cy - s / 2, s, s, cell * 0.12);
   const g = ctx.createLinearGradient(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2);
@@ -115,11 +135,13 @@ function wallTile(ctx, cx, cy, cell, time) {
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(240,244,247,0.92)";
-  ctx.font = `700 ${cell * 0.52}px ${CHAR_FONT}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("墙", cx, cy + cell * 0.02);
+  if (cell > 24) {
+    ctx.fillStyle = "rgba(240,244,247,0.92)";
+    ctx.font = `700 ${cell * 0.52}px ${CHAR_FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("墙", cx, cy + cell * 0.02);
+  }
 }
 
 function doorTile(ctx, cx, cy, cell, time) {
@@ -165,14 +187,13 @@ function charTile(ctx, cx, cy, cell, type, time, opts = {}) {
   ctx.save();
   ctx.translate(cx, cy + wobble);
 
-  // 纸片底
   roundRect(ctx, -s / 2, -s / 2, s, s, cell * 0.13);
   ctx.fillStyle = "rgba(255,252,244,0.94)";
   ctx.fill();
   ctx.strokeStyle = "rgba(90,70,40,0.22)";
   ctx.lineWidth = 1.2;
   ctx.stroke();
-  // 左侧色条
+
   ctx.save();
   roundRect(ctx, -s / 2, -s / 2, s, s, cell * 0.13);
   ctx.clip();
@@ -181,11 +202,13 @@ function charTile(ctx, cx, cy, cell, type, time, opts = {}) {
   ctx.fillRect(-s / 2, -s / 2, cell * 0.1, s);
   ctx.restore();
 
-  ctx.fillStyle = info.color;
-  ctx.font = `700 ${cell * 0.5}px ${CHAR_FONT}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(type, cell * 0.04, cell * 0.02);
+  if (cell > 18) {
+    ctx.fillStyle = info.color;
+    ctx.font = `700 ${cell * 0.5}px ${CHAR_FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(type, cell * 0.04, cell * 0.02);
+  }
   ctx.restore();
 }
 
@@ -193,7 +216,6 @@ function playerTile(ctx, cx, cy, cell, time) {
   const r = cell * 0.4;
   const pulse = 0.5 + 0.5 * Math.sin(time * 3);
   ctx.save();
-  // 呼吸光晕
   ctx.beginPath();
   ctx.arc(cx, cy, r * (1.15 + 0.12 * pulse), 0, Math.PI * 2);
   ctx.fillStyle = "rgba(192,57,43,0.13)";
@@ -216,119 +238,177 @@ function playerTile(ctx, cx, cy, cell, time) {
   ctx.lineWidth = 1.6;
   ctx.stroke();
 
-  ctx.fillStyle = "#fff5ec";
-  ctx.font = `700 ${cell * 0.46}px ${CHAR_FONT}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("我", cx, cy + cell * 0.02);
+  if (cell > 18) {
+    ctx.fillStyle = "#fff5ec";
+    ctx.font = `700 ${cell * 0.46}px ${CHAR_FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("我", cx, cy + cell * 0.02);
+  }
 }
 
-/** 反应特效：扩散光圈 + 粒子 + 上浮文字 */
-function drawFx(ctx, layout, fx, now) {
+function drawFx(ctx, layout, camera, fx, now) {
   for (const f of fx) {
     const t = (now - f.t0) / f.duration;
     if (t < 0 || t > 1) continue;
-    const { cx, cy } = center(layout, f.at.x, f.at.y);
+    const p = worldToScreen(layout, camera, f.at.x + 0.5, f.at.y + 0.5);
+    const cx = p.x, cy = p.y;
     const color = f.color || "#c0392b";
     const ease = 1 - Math.pow(1 - t, 3);
+    const cell = layout.cell;
 
-    // 光圈
     ctx.save();
     ctx.globalAlpha = (1 - t) * 0.9;
     ctx.strokeStyle = color;
     ctx.lineWidth = 3 * (1 - t) + 1;
     ctx.beginPath();
-    ctx.arc(cx, cy, layout.cell * (0.25 + ease * 0.85), 0, Math.PI * 2);
+    ctx.arc(cx, cy, cell * (0.25 + ease * 0.85), 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
 
-    // 粒子
     const n = f.particles || 10;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + (f.seed || 0);
-      const dist = layout.cell * (0.3 + ease * (0.8 + (i % 3) * 0.22));
+      const dist = cell * (0.3 + ease * (0.8 + (i % 3) * 0.22));
       const px = cx + Math.cos(a) * dist;
-      const py = cy + Math.sin(a) * dist + layout.cell * 0.15 * t * t;
+      const py = cy + Math.sin(a) * dist + cell * 0.15 * t * t;
       ctx.globalAlpha = (1 - t) * 0.85;
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(px, py, Math.max(1.5, layout.cell * 0.045 * (1 - t)), 0, Math.PI * 2);
+      ctx.arc(px, py, Math.max(1.5, cell * 0.045 * (1 - t)), 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
 
-    // 上浮说明文字
     if (f.label) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, (1 - t) * 1.8);
-      ctx.font = `600 ${layout.cell * 0.24}px ${FONT_UI}`;
+      ctx.font = `600 ${cell * 0.24}px ${FONT_UI}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.fillStyle = "rgba(40,30,18,0.92)";
-      roundRect(
-        ctx,
-        cx - layout.cell * 0.62,
-        cy - layout.cell * (0.95 + ease * 0.7),
-        layout.cell * 1.24,
-        layout.cell * 0.34,
-        layout.cell * 0.1
-      );
+      roundRect(ctx, cx - cell * 0.62, cy - cell * (0.95 + ease * 0.7), cell * 1.24, cell * 0.34, cell * 0.1);
       ctx.fillStyle = "rgba(255,250,238,0.94)";
       ctx.fill();
       ctx.fillStyle = color;
-      ctx.fillText(f.label, cx, cy - layout.cell * (0.64 + ease * 0.7));
+      ctx.fillText(f.label, cx, cy - cell * (0.64 + ease * 0.7));
       ctx.restore();
     }
   }
+}
+
+/** 右上角小地图：显示整张大地图、玩家位置与当前视口 */
+function drawMinimap(ctx, game, layout, camera) {
+  const mw = Math.min(200, Math.max(130, layout.width * 0.2));
+  const mh = mw * (game.rows / game.cols);
+  const mx = layout.width - mw - 14;
+  const my = 14;
+  const pad = 6;
+
+  ctx.save();
+  roundRect(ctx, mx, my, mw, mh, 8);
+  ctx.fillStyle = "rgba(22,30,38,0.78)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(244,234,214,0.35)";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  const s = Math.min((mw - pad * 2) / game.cols, (mh - pad * 2) / game.rows);
+  const ox = mx + (mw - s * game.cols) / 2;
+  const oy = my + (mh - s * game.rows) / 2;
+
+  // 墙
+  ctx.fillStyle = "rgba(160,178,194,0.85)";
+  for (const k of game.walls) {
+    const [x, y] = k.split(",").map(Number);
+    ctx.fillRect(ox + x * s, oy + y * s, Math.max(1, s), Math.max(1, s));
+  }
+  // 破口
+  ctx.fillStyle = "rgba(190,130,95,0.9)";
+  for (const k of game.breaches) {
+    const [x, y] = k.split(",").map(Number);
+    ctx.fillRect(ox + x * s, oy + y * s, Math.max(1, s), Math.max(1, s));
+  }
+  // 字
+  for (const c of game.chars) {
+    const info = TYPE_INFO[c.type] || { color: INK };
+    ctx.fillStyle = info.color;
+    ctx.fillRect(ox + c.x * s, oy + c.y * s, Math.max(1.2, s), Math.max(1.2, s));
+  }
+  // 门
+  ctx.fillStyle = "#e6c868";
+  ctx.fillRect(ox + game.door.x * s, oy + game.door.y * s, Math.max(1.6, s), Math.max(1.6, s));
+
+  // 玩家
+  const px = ox + (game.player.x + 0.5) * s;
+  const py = oy + (game.player.y + 0.5) * s;
+  ctx.beginPath();
+  ctx.arc(px, py, Math.max(2.2, s * 0.9), 0, Math.PI * 2);
+  ctx.fillStyle = "#e05a47";
+  ctx.fill();
+  ctx.strokeStyle = "#fff3e6";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // 当前视口
+  ctx.strokeStyle = "rgba(244,217,138,0.75)";
+  ctx.lineWidth = 1;
+  const vx = ox + (camera.x / layout.cell) * s;
+  const vy = oy + (camera.y / layout.cell) * s;
+  const vw = (layout.width / layout.cell) * s;
+  const vh = (layout.height / layout.cell) * s;
+  ctx.strokeRect(vx, vy, vw, vh);
+  ctx.restore();
 }
 
 /**
  * 渲染整帧
  * @param {CanvasRenderingContext2D} ctx
  * @param {import("./engine.js").Game} game
- * @param {{layout:object, width:number, height:number, time:number, fx:Array}} opts
+ * @param {{layout:object, camera:object, width:number, height:number, time:number, fx:Array}} opts
  */
 export function drawScene(ctx, game, opts) {
-  const { layout, width, height, time, fx = [] } = opts;
+  const { layout, camera, width, height, time, fx = [] } = opts;
+  const cell = layout.cell;
   ctx.clearRect(0, 0, width, height);
   drawPaper(ctx, width, height);
-  drawGrid(ctx, game, layout);
+  drawGrid(ctx, game, layout, camera);
 
-  // 格子内容
-  for (let y = 0; y < game.rows; y++) {
-    for (let x = 0; x < game.cols; x++) {
-      const { cx, cy } = center(layout, x, y);
-      const cell = layout.cell;
+  const x0 = Math.max(0, Math.floor(camera.x / cell));
+  const x1 = Math.min(game.cols - 1, Math.ceil((camera.x + width) / cell));
+  const y0 = Math.max(0, Math.floor(camera.y / cell));
+  const y1 = Math.min(game.rows - 1, Math.ceil((camera.y + height) / cell));
+
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const p = worldToScreen(layout, camera, x + 0.5, y + 0.5);
       if (game.isDoor(x, y)) {
-        doorTile(ctx, cx, cy, cell, time);
+        doorTile(ctx, p.x, p.y, cell, time);
       } else if (game.isWall(x, y)) {
-        wallTile(ctx, cx, cy, cell, time);
+        wallTile(ctx, p.x, p.y, cell);
       } else if (game.isBreach(x, y)) {
-        breachTile(ctx, cx, cy, cell);
+        breachTile(ctx, p.x, p.y, cell);
       }
     }
   }
 
-  // 字
   for (const c of game.chars) {
-    const { cx, cy } = center(layout, c.x, c.y);
-    charTile(ctx, cx, cy, layout.cell, c.type, time, { seed: c.id });
+    if (c.x < x0 - 1 || c.x > x1 + 1 || c.y < y0 - 1 || c.y > y1 + 1) continue;
+    const p = worldToScreen(layout, camera, c.x + 0.5, c.y + 0.5);
+    charTile(ctx, p.x, p.y, cell, c.type, time, { seed: c.id });
   }
 
-  // 「我」
   {
-    const { cx, cy } = center(layout, game.player.x, game.player.y);
-    playerTile(ctx, cx, cy, layout.cell, time);
+    const p = worldToScreen(layout, camera, game.player.x + 0.5, game.player.y + 0.5);
+    playerTile(ctx, p.x, p.y, cell, time);
   }
 
-  // 特效
-  drawFx(ctx, layout, fx, time * 1000);
+  drawFx(ctx, layout, camera, fx, time * 1000);
+  drawMinimap(ctx, game, layout, camera);
 
-  // 边框内框
   ctx.save();
   ctx.strokeStyle = "rgba(120,90,50,0.18)";
   ctx.lineWidth = 1.4;
-  ctx.strokeRect(layout.ox - 8, layout.oy - 8, layout.gw + 16, layout.gh + 16);
+  ctx.strokeRect(8, 8, width - 16, height - 16);
   ctx.restore();
 }
 
