@@ -1,0 +1,11 @@
+{
+  "name": "worddage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "我推字：一个纯文字解谜小游戏（控制「我」推动字符，按反应规则合成销毁，推「钥」撞「门」或破墙逃出）",
+  "scripts": {
+    "test": "node tests/engine.test.mjs && node tests/page.test.mjs",
+    "serve": "npx --yes serve ."
+  }
+}

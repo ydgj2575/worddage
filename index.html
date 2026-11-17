@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1b2430" />
+  <meta name="description" content="我推字：一个纯文字解谜小游戏。控制「我」推动字符，按反应规则合成销毁，推「钥」撞「门」或破墙逃出围墙。" />
+  <title>我推字 · 文字解谜</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <div class="title-wrap">
+      <h1>我 推 字</h1>
+      <p class="subtitle">一个纯文字解谜小游戏 · 按策划案《文字游戏》实现</p>
+    </div>
+    <div class="hud">
+      <span class="chip" id="steps">步数 0</span>
+      <span class="chip ghost" id="best">最佳 —</span>
+      <button class="btn small" id="undo" type="button">撤销</button>
+      <button class="btn small" id="restart" type="button">重开</button>
+      <button class="btn small accent" id="rules-toggle" type="button">规则</button>
+    </div>
+  </header>
+
+  <section class="stage" id="stage">
+    <canvas id="game" aria-label="文字游戏画面"></canvas>
+    <p class="banner" id="banner">目标：刀+猪→肤，刀+肤→月，月+铁→钥，再推「钥」撞门</p>
+
+    <!-- 触屏方向键 -->
+    <div class="dpad" aria-label="方向键">
+      <button class="dbtn up" data-dir="up" type="button" aria-label="上">▲</button>
+      <button class="dbtn left" data-dir="left" type="button" aria-label="左">◀</button>
+      <button class="dbtn down" data-dir="down" type="button" aria-label="下">▼</button>
+      <button class="dbtn right" data-dir="right" type="button" aria-label="右">▶</button>
+    </div>
+
+    <!-- 规则面板 -->
+    <aside class="rules hidden" id="rules" aria-label="规则说明"></aside>
+
+    <!-- 通关弹窗 -->
+    <div class="overlay hidden" id="win-overlay">
+      <div class="card">
+        <p class="eyebrow">通 关</p>
+        <h2 id="win-title">门开了</h2>
+        <p class="win-desc" id="win-desc"></p>
+        <p class="win-steps" id="win-steps"></p>
+        <button class="btn primary" id="again" type="button">再来一局</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span>WASD / 方向键 / 滑动移动</span>
+    <span>Z 撤销 · R 重开</span>
+    <span>推开「钥」撞门，或者破墙而出</span>
+  </footer>
+</main>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
