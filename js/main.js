@@ -200,9 +200,17 @@ function syncHud() {
   }
   if (els.banner) {
     const escaped = game.breaches.size > 0;
-    els.banner.textContent = escaped
-      ? "围墙已被破开！走到墙外也可通关"
-      : "目标：刀+猪→肤，刀+肤→月，月+铁→钥，再推「钥」撞门";
+    let text;
+    if (game.status === "won") {
+      text = "通关！";
+    } else if (escaped) {
+      text = "围墙已被破开！走到墙外也可通关";
+    } else if (game.isMinimapActive()) {
+      text = "靠近「目」：小地图已开启 · 目标：月+铁→钥，或破墙而出";
+    } else {
+      text = "小地图未开启 · 找到并靠近「目」可开启 · 目标：月+铁→钥，或破墙而出";
+    }
+    els.banner.textContent = text;
   }
 }
 
@@ -425,6 +433,7 @@ function buildRulesPanel() {
       <li>用「<b>破</b>」撞墙 或「<b>火</b>」撞「<b>蔷</b>」，破开围墙后走到墙外。</li>
     </ol>
     <p class="rules-tip">操作：WASD / 方向键 / 在画布上滑动；按住方向键（或手机方向键）可连续移动；Z 撤销；R 重开。</p>
+    <p class="rules-tip">新机制：蚏会随机移动（撞墙返回，被「伐」撞到后停下）；靠近「目」才显示小地图；「风」可以把「火」推动三格。</p>
   `;
   const close = $("rules-close");
   if (close) close.addEventListener("click", () => els.rules.classList.add("hidden"));

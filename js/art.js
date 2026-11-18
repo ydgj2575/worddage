@@ -403,7 +403,10 @@ export function drawScene(ctx, game, opts) {
   }
 
   drawFx(ctx, layout, camera, fx, time * 1000);
-  drawMinimap(ctx, game, layout, camera);
+  // 小地图：只有靠近「目」时才开启
+  if (typeof game.isMinimapActive === "function" && game.isMinimapActive()) {
+    drawMinimap(ctx, game, layout, camera);
+  }
 
   ctx.save();
   ctx.strokeStyle = "rgba(120,90,50,0.18)";
