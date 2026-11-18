@@ -141,9 +141,11 @@ try {
 check("渲染一帧不报错", frameError === null, frameError && frameError.message);
 check("渲染后再次请求动画帧", rafQueue.length > 1);
 
-console.log("\n[3] 键盘操作");
+console.log("\n[3] 键盘操作与按住连续移动");
 const keyHandler = (listeners.window.filter((l) => l.type === "keydown").pop() || {}).handler;
+const keyupHandler = (listeners.window.filter((l) => l.type === "keyup").pop() || {}).handler;
 check("已注册键盘监听", typeof keyHandler === "function");
+check("已注册 keyup 监听", typeof keyupHandler === "function");
 const preventDefault = () => {};
 keyHandler({ key: "ArrowLeft", preventDefault });
 check("方向键可以移动「我」", game.player.x === 44 && game.player.y === 29, `${game.player.x},${game.player.y}`);
@@ -151,7 +153,27 @@ check("HUD 步数更新", elements.steps.textContent.includes("步数 1"), eleme
 keyHandler({ key: "z", preventDefault });
 check("Z 撤销", game.player.x === 45 && game.steps === 0, `${game.player.x},${game.steps}`);
 
+// 按住不放：按下立即走一格，之后按 INPUT_CONFIG 的间隔连续移动
+keyHandler({ key: "ArrowLeft", preventDefault, repeat: false });
+check("按下立即移动一格", game.player.x === 44, game.player.x);
+keyHandler({ key: "ArrowLeft", preventDefault, repeat: true });
+check("忽略系统自动重复（不会双倍移动）", game.player.x === 44, game.player.x);
+let fakeNow = 5000;
+const advance = (ms) => {
+  fakeNow += ms;
+  rafQueue[rafQueue.length - 1](fakeNow);
+};
+for (let i = 0; i < 4; i++) advance(50); // 200ms ≥ holdStartDelayMs(160)
+check("按住后开始自动连续移动", game.player.x === 43, game.player.x);
+for (let i = 0; i < 3; i++) advance(50); // 150ms ≥ holdRepeatMs(120)
+check("连续移动按配置的间隔继续", game.player.x === 42, game.player.x);
+check("按住移动累计步数", game.steps === 3, game.steps);
+keyupHandler({ key: "ArrowLeft", preventDefault });
+for (let i = 0; i < 5; i++) advance(50);
+check("松开后停止连续移动", game.player.x === 42, game.player.x);
+
 console.log("\n[4] 通关流程（用完整路线）");
+doRestart();
 const moves = ("LLLUULLUU" + "R".repeat(13)).split("");
 for (const m of moves) {
   doMove({ L: "left", R: "right", U: "up", D: "down" }[m]);

@@ -5,6 +5,16 @@
 import { Game, RULE_HINTS, TYPE_INFO } from "./engine.js";
 import { computeLayout, computeCamera, drawScene } from "./art.js";
 
+/* ================================================================== */
+/* 配置区：按住方向键连续移动的速度                                    */
+/* ================================================================== */
+const INPUT_CONFIG = {
+  // 按住方向键后，每隔多少毫秒自动移动一格（越小 = 移动越快；60 约 16格/秒）
+  holdRepeatMs: 120,
+  // 按下后第一次“自动连续移动”前的延迟（毫秒）；按下瞬间本身会立即移动一格
+  holdStartDelayMs: 160,
+};
+
 const $ = (id) => (typeof document !== "undefined" ? document.getElementById(id) : null);
 
 const canvas = $("game");
@@ -35,6 +45,37 @@ let width = 960;
 let height = 640;
 let bestSteps = 0;
 let audioCtx = null;
+
+/* 按住连续移动的状态 */
+const heldDirs = [];      // 当前按住的方向（后按的优先）
+let holdElapsed = 0;      // 距离上一次移动累计的时间（毫秒）
+let holdFirstPending = true; // 是否还处于“首次自动重复”的延迟阶段
+
+function activeHeldDir() {
+  return heldDirs.length ? heldDirs[heldDirs.length - 1] : null;
+}
+
+function clearHeld() {
+  heldDirs.length = 0;
+  holdElapsed = 0;
+  holdFirstPending = true;
+}
+
+function startHold(dir) {
+  if (heldDirs.includes(dir)) return;
+  heldDirs.push(dir);
+  doMove(dir); // 按下瞬间先走一格（响应更跟手）
+  holdElapsed = 0;
+  holdFirstPending = true;
+}
+
+function stopHold(dir) {
+  const i = heldDirs.indexOf(dir);
+  if (i < 0) return;
+  heldDirs.splice(i, 1);
+  holdElapsed = 0;
+  holdFirstPending = true;
+}
 
 try {
   bestSteps = Number(window.localStorage.getItem("worddage:best") || 0) || 0;
@@ -248,11 +289,15 @@ function doMove(dir) {
   }
   handleEvents(res.events);
   syncHud();
-  if (res.status === "won") setTimeout(showWin, 480);
+  if (res.status === "won") {
+    clearHeld();
+    setTimeout(showWin, 480);
+  }
 }
 
 function doUndo() {
   if (!game.canUndo()) return;
+  clearHeld();
   game.undo();
   fx.length = 0;
   hideWin();
@@ -262,6 +307,7 @@ function doUndo() {
 }
 
 function doRestart() {
+  clearHeld();
   game.reset();
   fx.length = 0;
   hideWin();
@@ -288,15 +334,28 @@ const KEY_DIRS = {
 function bindInput() {
   if (typeof window !== "undefined" && window.addEventListener) {
     window.addEventListener("keydown", (e) => {
-      if (KEY_DIRS[e.key]) {
+      const dir = KEY_DIRS[e.key];
+      if (dir) {
         e.preventDefault();
-        doMove(KEY_DIRS[e.key]);
+        // 系统自动重复交给逐帧逻辑处理，避免“系统重复 + 我们的重复”叠加
+        if (e.repeat) return;
+        startHold(dir);
       } else if (e.key === "z" || e.key === "Z") {
         doUndo();
       } else if (e.key === "r" || e.key === "R") {
         doRestart();
       }
     });
+
+    window.addEventListener("keyup", (e) => {
+      const dir = KEY_DIRS[e.key];
+      if (!dir) return;
+      e.preventDefault();
+      stopHold(dir);
+    });
+
+    // 窗口失焦时停止连续移动，避免“粘键”
+    window.addEventListener("blur", clearHeld);
   }
 
   if (els.undo && els.undo.addEventListener) els.undo.addEventListener("click", doUndo);
@@ -307,8 +366,21 @@ function bindInput() {
       if (els.rules) els.rules.classList.toggle("hidden");
     });
   }
+  // 手机方向键：按住也可以连续移动
   document.querySelectorAll?.("[data-dir]")?.forEach?.((btn) => {
-    btn.addEventListener("click", () => doMove(btn.dataset.dir));
+    const dir = btn.dataset.dir;
+    btn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      ensureAudio();
+      startHold(dir);
+    });
+    const stop = (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+      stopHold(dir);
+    };
+    btn.addEventListener("pointerup", stop);
+    btn.addEventListener("pointercancel", stop);
+    btn.addEventListener("pointerleave", stop);
   });
 
   // 画布滑动
@@ -352,7 +424,7 @@ function buildRulesPanel() {
       <li>推「<b>钥</b>」撞「<b>门</b>」，从大门走出围墙；</li>
       <li>用「<b>破</b>」撞墙 或「<b>火</b>」撞「<b>蔷</b>」，破开围墙后走到墙外。</li>
     </ol>
-    <p class="rules-tip">操作：WASD / 方向键 / 在画布上滑动；Z 撤销；R 重开。</p>
+    <p class="rules-tip">操作：WASD / 方向键 / 在画布上滑动；按住方向键（或手机方向键）可连续移动；Z 撤销；R 重开。</p>
   `;
   const close = $("rules-close");
   if (close) close.addEventListener("click", () => els.rules.classList.add("hidden"));
@@ -367,6 +439,19 @@ function frame(now) {
     const dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0.016;
     lastNow = now;
     updateCamera(dt);
+
+    // 按住连续移动：按 INPUT_CONFIG.holdRepeatMs 的间隔不断走格
+    const heldDir = activeHeldDir();
+    if (heldDir && game.status === "playing") {
+      holdElapsed += dt * 1000;
+      const threshold = holdFirstPending ? INPUT_CONFIG.holdStartDelayMs : INPUT_CONFIG.holdRepeatMs;
+      if (holdElapsed >= threshold) {
+        holdElapsed = 0;
+        holdFirstPending = false;
+        doMove(heldDir);
+      }
+    }
+
     const t = now / 1000;
     // 清理过期特效
     for (let i = fx.length - 1; i >= 0; i--) {
@@ -404,4 +489,4 @@ if (typeof document !== "undefined") {
 }
 
 // 供测试 / 调试使用
-export { game, doMove, doUndo, doRestart, syncHud, resize };
+export { game, doMove, doUndo, doRestart, syncHud, resize, INPUT_CONFIG };

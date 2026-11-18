@@ -16,10 +16,25 @@
 ## 怎么玩
 
 - 用 **WASD / 方向键** 移动，或直接在画布上**滑动**；手机可点右下角方向键
+- **按住方向键/手机方向键不放可以连续移动**（速度可调，见下方「移动速度配置」）
 - **Z** 撤销一步，**R** 重开
 - 目标（任一即可通关）：
   1. 按 `刀+猪→肤`、`刀+肤→月`、`月+铁→钥` 合成「钥」，再推「钥」撞「门」；
   2. 用 `皮+石→破`、`破+墙` 破墙，或 `水+墙→蔷`、`火+蔷` 破墙，然后走到围墙外。
+
+### 移动速度配置
+
+按住方向键的连续移动速度在 **`js/main.js` 顶部配置区** 调整：
+
+```js
+const INPUT_CONFIG = {
+  holdRepeatMs: 120,     // 按住后每隔多少毫秒移动一格（越小越快）
+  holdStartDelayMs: 160, // 按下后第一次自动连续移动前的延迟（毫秒）
+};
+```
+
+按下瞬间会先立即移动一格，之后按 `holdStartDelayMs` 等待、再按 `holdRepeatMs` 的间隔连续移动；
+松开按键立即停止。系统自带的键盘自动重复会被忽略，不会出现双倍移动。
 
 ### 反应规则
 
@@ -60,7 +75,7 @@ npx serve .
 
 ```bash
 node tests/engine.test.mjs   # 引擎规则 / 关卡可解性 / 摄像机（52 项）
-node tests/page.test.mjs     # DOM 桩件页面冒烟测试（18 项）
+node tests/page.test.mjs     # DOM 桩件页面冒烟测试（25 项）
 # 或
 npm test
 ```
@@ -86,4 +101,5 @@ worddage/
 - 纯前端、零依赖：Canvas 2D + WebAudio 合成音效 + localStorage 记录最佳步数
 - `engine.js` 不依赖 DOM，可在 Node 中直接跑单元测试
 - `art.js` 负责摄像机：`computeLayout` 按视口约 17×11 格算缩放，`computeCamera` 把「我」放在画面中心并夹在世界边界内；只绘制可见格子，右上角额外绘制小地图
+- 按住连续移动：`main.js` 的 `INPUT_CONFIG` 控制速度；键盘按住状态用逐帧计时驱动，忽略系统 key repeat；手机方向键同样支持按住
 - 关卡数据（地图尺寸、围墙、门、初始字、目标提示）集中在 `engine.js` 的 `DEFAULT_LEVEL`，方便改地图
