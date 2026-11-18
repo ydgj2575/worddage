@@ -148,29 +148,29 @@ check("已注册键盘监听", typeof keyHandler === "function");
 check("已注册 keyup 监听", typeof keyupHandler === "function");
 const preventDefault = () => {};
 keyHandler({ key: "ArrowLeft", preventDefault });
-check("方向键可以移动「我」", game.player.x === 44 && game.player.y === 29, `${game.player.x},${game.player.y}`);
+check("方向键可以移动「我」", game.player.x === 199 && game.player.y === 132, `${game.player.x},${game.player.y}`);
 check("HUD 步数更新", elements.steps.textContent.includes("步数 1"), elements.steps.textContent);
 keyHandler({ key: "z", preventDefault });
-check("Z 撤销", game.player.x === 45 && game.steps === 0, `${game.player.x},${game.steps}`);
+check("Z 撤销", game.player.x === 200 && game.steps === 0, `${game.player.x},${game.steps}`);
 
 // 按住不放：按下立即走一格，之后按 INPUT_CONFIG 的间隔连续移动
 keyHandler({ key: "ArrowLeft", preventDefault, repeat: false });
-check("按下立即移动一格", game.player.x === 44, game.player.x);
+check("按下立即移动一格", game.player.x === 199, game.player.x);
 keyHandler({ key: "ArrowLeft", preventDefault, repeat: true });
-check("忽略系统自动重复（不会双倍移动）", game.player.x === 44, game.player.x);
+check("忽略系统自动重复（不会双倍移动）", game.player.x === 199, game.player.x);
 let fakeNow = 5000;
 const advance = (ms) => {
   fakeNow += ms;
   rafQueue[rafQueue.length - 1](fakeNow);
 };
 for (let i = 0; i < 4; i++) advance(50); // 200ms ≥ holdStartDelayMs(160)
-check("按住后开始自动连续移动", game.player.x === 43, game.player.x);
+check("按住后开始自动连续移动", game.player.x === 198, game.player.x);
 for (let i = 0; i < 3; i++) advance(50); // 150ms ≥ holdRepeatMs(120)
-check("连续移动按配置的间隔继续", game.player.x === 42, game.player.x);
+check("连续移动按配置的间隔继续", game.player.x === 197, game.player.x);
 check("按住移动累计步数", game.steps === 3, game.steps);
 keyupHandler({ key: "ArrowLeft", preventDefault });
 for (let i = 0; i < 5; i++) advance(50);
-check("松开后停止连续移动", game.player.x === 42, game.player.x);
+check("松开后停止连续移动", game.player.x === 197, game.player.x);
 
 console.log("\n[4] 通关流程（用完整路线）");
 doRestart();
@@ -187,7 +187,7 @@ check("最佳步数写入 localStorage", storage.get("worddage:best") === "22", 
 
 console.log("\n[5] 重开");
 doRestart();
-check("重开后回到初始状态", game.player.x === 45 && game.steps === 0 && game.status === "playing");
+check("重开后回到初始状态", game.player.x === 200 && game.steps === 0 && game.status === "playing");
 check("重开后隐藏弹窗", elements["win-overlay"].classList.contains("hidden"));
 
 console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项\n`);

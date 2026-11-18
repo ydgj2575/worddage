@@ -38,12 +38,12 @@ const seq = (g, moves) => moves.split("").map((m) => {
 console.log("\n[1] 初始状态与围墙");
 {
   const g = new Game();
-  check("玩家初始位置正确", g.player.x === 45 && g.player.y === 29, `${g.player.x},${g.player.y}`);
-  check("初始字数量正确", g.chars.length === 14, g.chars.length);
-  check("围墙存在且不含门", g.walls.size === 173, g.walls.size);
-  check("门位置正确", g.isDoor(53, 27));
+  check("玩家初始位置正确", g.player.x === 200 && g.player.y === 132, `${g.player.x},${g.player.y}`);
+  check("初始字数量正确", g.chars.length === 17, g.chars.length);
+  check("围墙存在且不含门", g.walls.size === 685, g.walls.size);
+  check("门位置正确", g.isDoor(208, 130));
   check("「我」在围墙内", g.insideRect(g.player.x, g.player.y));
-  check("地图面积约为旧版 17×11 的 10 倍", g.cols * g.rows >= 10 * 17 * 11, g.cols * g.rows);
+  check("地图面积约为旧版 17×11 的 150 倍（10×15）", g.cols * g.rows >= 150 * 17 * 11, g.cols * g.rows);
   const stone = g.chars.find((c) => c.type === "石");
   const fire = g.chars.find((c) => c.type === "火");
   check("「火」位于「石」的正下方", stone && fire && fire.x === stone.x && fire.y === stone.y + 1,
@@ -54,9 +54,9 @@ console.log("\n[2] 基础移动 / 阻挡");
 {
   const g = new Game();
   g.move("left");
-  check("空地可以移动", g.player.x === 44 && g.player.y === 29, `${g.player.x},${g.player.y}`);
+  check("空地可以移动", g.player.x === 199 && g.player.y === 132, `${g.player.x},${g.player.y}`);
   g.move("down");
-  check("可以继续移动", g.player.x === 44 && g.player.y === 30);
+  check("可以继续移动", g.player.x === 199 && g.player.y === 133);
   check("步数累计", g.steps === 2, g.steps);
   // 用一堵自建小墙测试阻挡
   const g2 = new Game(
@@ -267,7 +267,7 @@ console.log("\n[12] 撤销 / 重置");
   g.undo();
   check("撤销恢复上一步", g.fingerprint() === before);
   g.reset();
-  check("重置回到初始状态", g.player.x === 45 && g.player.y === 29 && g.steps === 0);
+  check("重置回到初始状态", g.player.x === 200 && g.player.y === 132 && g.steps === 0);
 }
 
 console.log("\n[13] 完整关卡通关（策划案路线，22 步）");
@@ -286,7 +286,7 @@ console.log("\n[13] 完整关卡通关（策划案路线，22 步）");
   check("按路线可以推开围墙门通关", win === true && g.winReason === "door", g.winReason);
   check("最终步数与路线一致", g.steps === 22, g.steps);
   check("钥已用于开门", !g.hasChar("钥"));
-  check("关卡初始数据完整", DEFAULT_LEVEL.chars.length === 14);
+  check("关卡初始数据完整", DEFAULT_LEVEL.chars.length === 17);
 }
 
 console.log("\n[14] 摄像机 / 大地图视口");
@@ -300,10 +300,10 @@ console.log("\n[14] 摄像机 / 大地图视口");
     Math.floor(960 / layout.cell));
 
   // 地图内部：摄像机让「我」居中
-  const centerGame = { ...g, player: { x: 27, y: 17 } };
+  const centerGame = { ...g, player: { x: Math.floor(g.cols / 2), y: Math.floor(g.rows / 2) } };
   const cam = computeCamera(centerGame, layout);
-  const px = (27 + 0.5) * layout.cell - cam.x;
-  const py = (17 + 0.5) * layout.cell - cam.y;
+  const px = (centerGame.player.x + 0.5) * layout.cell - cam.x;
+  const py = (centerGame.player.y + 0.5) * layout.cell - cam.y;
   check("地图内部时摄像机把「我」放在屏幕中央",
     Math.abs(px - 960 / 2) < 1 && Math.abs(py - 640 / 2) < 1, `${px.toFixed(1)},${py.toFixed(1)}`);
 
