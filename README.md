@@ -12,8 +12,8 @@
 ## 开发者：自定义文字位置
 
 - 所有关卡数据集中在 **`js/levels.js`**：每个字一行 `{ type: "刀", x: 193, y: 129 }`，改坐标即可
-- 也可以点游戏右上角 **「编辑布局」**：选字 → 点画布格子放置/擦除 → 保存布局（存本机 localStorage）
-  支持设置玩家起点、门、导出/导入 JSON、还原默认布局
+- 也可以点游戏右上角 **「编辑布局」**：选字/选「墙」→ 点画布格子放置/擦除 → 保存布局（存本机 localStorage）
+  支持设置玩家起点、门、放置额外墙、导出/导入 JSON、还原默认布局
 - 详细说明（坐标规则、数据格式、注意事项）见 **[关卡编辑说明.md](关卡编辑说明.md)**
 
 ## 超大地图与摄像机
@@ -108,8 +108,8 @@ npx serve .
 ## 测试
 
 ```bash
-node tests/engine.test.mjs   # 引擎规则 / 关卡可解性 / 摄像机（65 项）
-node tests/page.test.mjs     # DOM 桩件页面冒烟测试（54 项）
+node tests/engine.test.mjs   # 引擎规则 / 关卡可解性 / 摄像机（69 项）
+node tests/page.test.mjs     # DOM 桩件页面冒烟测试（62 项）
 # 或
 npm test
 ```
@@ -137,7 +137,7 @@ worddage/
 
 - 纯前端、零依赖：Canvas 2D + WebAudio 合成音效 + localStorage 记录最佳步数（按关卡分别记录，key 为 `worddage:best:<levelId>`，并兼容旧的 `worddage:best`）
 - `engine.js` 不依赖 DOM，可在 Node 中直接跑单元测试；关卡数据统一放在 `js/levels.js`（`DEFAULT_LEVEL` / `CHALLENGE_LEVEL` / `LEVELS`）
-- **布局编辑器**：`main.js` 内置「编辑布局」模式，点格子放置/擦除文字、设置玩家起点与门、保存到 localStorage（`worddage:levels`）、导出/导入 JSON、还原默认；存储的自定义布局在启动时自动应用
+- **布局编辑器**：`main.js` 内置「编辑布局」模式，点格子放置/擦除文字或额外「墙」、设置玩家起点与门、保存到 localStorage（`worddage:levels`）、导出/导入 JSON、还原默认；存储的自定义布局在启动时自动应用；色板用事件委托，多行按钮也能正常选中
 - `art.js` 负责摄像机：`computeLayout` 按视口约 17×11 格算缩放，`computeCamera` 把「我」放在画面中心并夹在世界边界内；只绘制可见格子；**小地图仅在靠近「目」时绘制**
 - 按住连续移动：`main.js` 的 `INPUT_CONFIG` 控制速度；键盘按住状态用逐帧计时驱动，忽略系统 key repeat；手机方向键同样支持按住
 - 新机制：`engine.js` 里「蚏」每回合随机移动（以诞生点为中心、半径 `WANDER_RADIUS=5`，撞墙/撞字后反向，`stopped` 后不再移动）；「目」用切比雪夫距离 ≤2 判断小地图开关；「风」推「火」为特殊位移规则

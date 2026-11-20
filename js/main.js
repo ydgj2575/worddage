@@ -441,6 +441,9 @@ function normalizeLevel(lv, base) {
     chars: chars
       .filter((c) => c && typeof c.type === "string" && Number.isFinite(c.x) && Number.isFinite(c.y))
       .map((c) => ({ type: c.type, x: Math.floor(c.x), y: Math.floor(c.y) })),
+    walls: (Array.isArray(lv.walls) ? lv.walls : [])
+      .filter((w) => w && Number.isFinite(w.x) && Number.isFinite(w.y))
+      .map((w) => ({ x: Math.floor(w.x), y: Math.floor(w.y) })),
     objectives: Array.isArray(lv.objectives) && lv.objectives.length ? lv.objectives : base.objectives,
   };
 }
@@ -485,25 +488,52 @@ function editStatus(msg) {
 function buildPalette() {
   if (!els.editPalette) return;
   els.editPalette.innerHTML = "";
-  const types = Object.keys(TYPE_INFO).filter((t) => t !== "我" && t !== "墙" && t !== "门");
+  // 除「我」与「门」外都可放置；「墙」也可以（作为额外墙格）
+  const types = Object.keys(TYPE_INFO).filter((t) => t !== "我" && t !== "门");
   for (const type of types) {
     let btn = null;
     if (typeof document.createElement === "function") {
       btn = document.createElement("button");
     } else {
-      btn = { addEventListener() {}, classList: { add() {}, remove() {}, toggle() {} } };
+      btn = { classList: { add() {}, remove() {}, toggle() {} } };
     }
     btn.type = "button";
     if (btn.className !== undefined) btn.className = "btn tiny palette-item";
     btn.textContent = type;
-    btn.title = type;
+    btn.title = type === "墙" ? "放置一格墙（额外墙，可擦除）" : `放置「${type}」`;
+    if (btn.dataset) btn.dataset.type = type;
     if (editTool.kind === "char" && editTool.type === type && btn.classList) btn.classList.add("active");
-    btn.addEventListener("click", () => {
-      editTool = { kind: "char", type };
-      buildPalette();
-      editStatus(`当前工具：放置「${type}」`);
-    });
     if (els.editPalette.appendChild) els.editPalette.appendChild(btn);
+  }
+}
+
+/** 在色板容器上用事件委托（第二行/滚动后的按钮也能稳定选中） */
+function handlePaletteClick(e) {
+  const target = e && e.target;
+  if (!target) return;
+  let btn = null;
+  if (typeof target.closest === "function") btn = target.closest(".palette-item");
+  else if (target.dataset && target.dataset.type) btn = target;
+  if (!btn || !btn.dataset || !btn.dataset.type) return;
+  const type = btn.dataset.type;
+  editTool = { kind: "char", type };
+  buildPalette();
+  editStatus(`当前工具：${type === "墙" ? "放置墙" : `放置「${type}」`}`);
+  if (e.stopPropagation) e.stopPropagation();
+}
+
+/** 该格是否是编辑器额外放的墙 */
+function isExtraWall(level, x, y) {
+  return (level.walls || []).some((w) => w.x === x && w.y === y);
+}
+
+function setExtraWall(level, x, y, on) {
+  if (!level.walls) level.walls = [];
+  const i = level.walls.findIndex((w) => w.x === x && w.y === y);
+  if (on) {
+    if (i < 0) level.walls.push({ x, y });
+  } else if (i >= 0) {
+    level.walls.splice(i, 1);
   }
 }
 
@@ -557,7 +587,10 @@ function editPlaceAt(x, y) {
   }
   const wr = editLevel.wallRect;
   const onBorder = x === wr.x1 || x === wr.x2 || y === wr.y1 || y === wr.y2;
-  const isWallCell = onBorder && !(x === editLevel.door.x && y === editLevel.door.y);
+  const perimeterWall = onBorder && !(x === editLevel.door.x && y === editLevel.door.y);
+  const extraWall = isExtraWall(editLevel, x, y);
+  const isWallCell = perimeterWall || extraWall;
+  const isDoorCell = x === editLevel.door.x && y === editLevel.door.y;
 
   if (editTool.kind === "door") {
     if (!onBorder) {
@@ -565,29 +598,50 @@ function editPlaceAt(x, y) {
       return false;
     }
     editLevel.door = { x, y };
+    setExtraWall(editLevel, x, y, false);
     removeCharAt(editLevel, x, y);
     editStatus(`门 → (${x},${y})`);
   } else if (editTool.kind === "player") {
     if (isWallCell) {
-      editStatus("玩家起点不能放在墙上");
+      editStatus("玩家起点不能放在墙上（先用「擦除」去掉额外墙）");
+      return false;
+    }
+    if (isDoorCell) {
+      editStatus("玩家起点不能放在门上");
       return false;
     }
     editLevel.player = { x, y };
     removeCharAt(editLevel, x, y);
     editStatus(`玩家起点 → (${x},${y})`);
   } else if (editTool.kind === "erase") {
-    if (isWallCell) {
-      editStatus("墙格不能擦除（墙由 wallRect 决定）");
+    if (extraWall) {
+      setExtraWall(editLevel, x, y, false);
+      editStatus(`已删除 (${x},${y}) 的额外墙`);
+    } else if (perimeterWall) {
+      editStatus("围墙边界不能擦除（由 wallRect 决定）");
+      return false;
+    } else {
+      const removed = removeCharAt(editLevel, x, y);
+      editStatus(removed ? `已删除 (${x},${y}) 的「${removed.type}」` : `(${x},${y}) 没有文字`);
+    }
+  } else if (editTool.kind === "char" && editTool.type === "墙") {
+    if (perimeterWall) {
+      editStatus("这里已经是围墙了");
       return false;
     }
-    const removed = removeCharAt(editLevel, x, y);
-    editStatus(removed ? `已删除 (${x},${y}) 的「${removed.type}」` : `(${x},${y}) 没有文字`);
+    if (isDoorCell) {
+      editStatus("门格不能放墙");
+      return false;
+    }
+    removeCharAt(editLevel, x, y);
+    setExtraWall(editLevel, x, y, true);
+    editStatus(`墙 → (${x},${y})（额外墙，可用「擦除」去掉）`);
   } else {
     if (isWallCell) {
-      editStatus("墙格不能放字（墙由 wallRect 决定）");
+      editStatus(extraWall ? "该格是额外墙，请先用「擦除」去掉墙" : "墙格不能放字（墙由 wallRect 决定）");
       return false;
     }
-    if (x === editLevel.door.x && y === editLevel.door.y) {
+    if (isDoorCell) {
       editStatus("门格不能放字");
       return false;
     }
@@ -715,6 +769,8 @@ const editApi = {
   importJSON: importEditJSON,
   getLevel: () => (editLevel ? cloneLevel(editLevel) : null),
   status: () => (els.editStatus ? els.editStatus.textContent : ""),
+  paletteTypes: () => Object.keys(TYPE_INFO).filter((t) => t !== "我" && t !== "门"),
+  tool: () => ({ ...editTool }),
 };
 
 const KEY_DIRS = {
@@ -783,6 +839,14 @@ function bindInput() {
   if (els.editExport) els.editExport.addEventListener("click", showExportJSON);
   if (els.editImport) els.editImport.addEventListener("click", showImportJSON);
   if (els.editReset) els.editReset.addEventListener("click", resetEditLevel);
+  // 色板用事件委托：第二行/滚动后的字也能稳定选中
+  if (els.editPalette) els.editPalette.addEventListener("click", handlePaletteClick);
+  // 编辑器区域内的点击不要传给画布
+  if (els.editor && els.editor.addEventListener) {
+    els.editor.addEventListener("pointerdown", (e) => {
+      if (e.stopPropagation) e.stopPropagation();
+    });
+  }
   if (els.rulesToggle && els.rulesToggle.addEventListener) {
     els.rulesToggle.addEventListener("click", () => {
       if (els.rules) els.rules.classList.toggle("hidden");

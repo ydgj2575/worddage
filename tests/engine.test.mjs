@@ -30,6 +30,7 @@ function makeLevel(opts) {
     door: opts.door ?? { x: -1, y: -1 },
     player: opts.player,
     chars: opts.chars ?? [],
+    walls: opts.walls ?? [],
     objectives: [],
   };
 }
@@ -340,7 +341,29 @@ console.log("\n[12] 通关路线：破墙（水+墙→蔷，火+蔷→破墙，�
   check("路线执行没有卡住", r && r.moved !== false);
 }
 
-console.log("\n[12b] 第二关 · 新内容挑战（新合成链造铁→钥→门）");
+console.log("\n[12b] 额外墙（编辑器里放的「墙」）");
+{
+  const g = new Game(makeLevel({
+    cols: 10,
+    rows: 8,
+    player: { x: 2, y: 3 },
+    chars: [],
+    walls: [{ x: 3, y: 3 }, { x: 4, y: 3 }],
+  }));
+  check("额外墙加入 walls（32 边界 + 2）", g.walls.size === 34, g.walls.size);
+  check("额外墙可以挡路", g.move("right").moved === false && g.player.x === 2);
+  check("额外墙进入渲染数据", g.cellAt(3, 3).kind === "wall");
+  const g2 = new Game(makeLevel({
+    cols: 10,
+    rows: 8,
+    player: { x: 2, y: 3 },
+    chars: [],
+    walls: [{ x: 0, y: 3 }], // 与边界重合，不应重复计数
+  }));
+  check("与边界重合的额外墙不会重复", g2.walls.size === 32, g2.walls.size);
+}
+
+console.log("\n[12c] 第二关 · 新内容挑战（新合成链造铁→钥→门）");
 {
   const g = new Game(CHALLENGE_LEVEL);
   check("挑战关存在且初始没有「铁」", !has(g, "铁") && g.level.id === "challenge");

@@ -251,6 +251,28 @@ check("导出 JSON 可解析", (() => { try { return JSON.parse(exported).chars.
 editApi.reset();
 check("还原默认后 (10,10) 不再有菜", !editApi.getLevel().chars.some((c) => c.type === "菜" && c.x === 10 && c.y === 10));
 check("还原默认后 localStorage 无自定义布局", !(storage.get("worddage:levels") || "").includes("main"));
+
+// 「墙」也能放进编辑区；色板第二行用事件委托选中
+check("色板包含「墙」", editApi.paletteTypes().includes("墙"));
+elements["edit-palette"].dispatch("click", {
+  target: { closest: () => ({ dataset: { type: "墙" } }) },
+  stopPropagation() {},
+});
+check("委托点击选中「墙」", editApi.tool().type === "墙");
+check("放置额外墙", editApi.place(12, 12) === true && game.isWall(12, 12) === true);
+check("额外墙写入编辑数据", editApi.getLevel().walls.some((w) => w.x === 12 && w.y === 12));
+editApi.selectChar("菜");
+check("额外墙格不能放字", editApi.place(12, 12) === false);
+editApi.selectTool("erase");
+check("擦除额外墙", editApi.place(12, 12) === true && game.isWall(12, 12) === false);
+// 模拟点第二行的「木」：事件委托后应能正常选中并放置
+elements["edit-palette"].dispatch("click", {
+  target: { closest: () => ({ dataset: { type: "木" } }) },
+  stopPropagation() {},
+});
+check("第二行文字也能正常选中（委托）", editApi.tool().type === "木");
+check("选中的「木」能正常放置", editApi.place(14, 12) === true && game.charAt(14, 12)?.type === "木");
+
 check("退出编辑模式", editApi.exit() === true && editApi.isActive() === false);
 check("退出后横幅恢复正常", elements.banner.textContent.includes("小地图"), elements.banner.textContent);
 

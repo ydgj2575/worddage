@@ -152,6 +152,15 @@ export class Game {
         this.walls.add(keyOf(x, y));
       }
     }
+    // 关卡可额外指定若干「墙」格（编辑器里放的墙就写进 level.walls）
+    for (const w of Array.isArray(lv.walls) ? lv.walls : []) {
+      if (!w || !Number.isFinite(w.x) || !Number.isFinite(w.y)) continue;
+      const wx = Math.floor(w.x);
+      const wy = Math.floor(w.y);
+      if (!this.inBounds(wx, wy)) continue;
+      if (wx === this.door.x && wy === this.door.y) continue;
+      this.walls.add(keyOf(wx, wy));
+    }
 
     this.steps = 0;
     this.status = "playing"; // playing | won
