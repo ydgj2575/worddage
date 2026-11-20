@@ -36,6 +36,19 @@ const els = {
   banner: $("banner"),
   levelMain: $("level-main"),
   levelChallenge: $("level-challenge"),
+  editToggle: $("edit-toggle"),
+  editor: $("editor"),
+  editStatus: $("edit-status"),
+  editPalette: $("edit-palette"),
+  editPlayer: $("edit-player"),
+  editDoor: $("edit-door"),
+  editErase: $("edit-erase"),
+  editClear: $("edit-clear"),
+  editSave: $("edit-save"),
+  editExport: $("edit-export"),
+  editImport: $("edit-import"),
+  editReset: $("edit-reset"),
+  editClose: $("edit-close"),
 };
 
 const game = new Game(LEVELS[0]);
@@ -48,6 +61,13 @@ let height = 640;
 let bestSteps = 0;
 let currentLevelIndex = 0;
 let audioCtx = null;
+
+/* 开发者布局编辑器状态 */
+let editMode = false;
+let editLevel = null;
+let editTool = { kind: "char", type: "刀" };
+const CUSTOM_LEVELS_KEY = "worddage:levels";
+const ORIGINAL_LEVELS = LEVELS.map((l) => JSON.parse(JSON.stringify(l)));
 
 /* 按住连续移动的状态 */
 const heldDirs = [];      // 当前按住的方向（后按的优先）
@@ -224,6 +244,10 @@ function syncHud() {
     els.undo.classList && els.undo.classList.toggle("disabled", !game.canUndo());
   }
   if (els.banner) {
+    if (editMode) {
+      els.banner.textContent = `【布局编辑】${game.level.name} · 点击格子放置/擦除，改完点「保存布局」`;
+      return;
+    }
     const escaped = game.breaches.size > 0;
     const levelName = game.level && game.level.name ? `【${game.level.name}】` : "";
     let text;
@@ -312,6 +336,7 @@ function handleEvents(events) {
 /* 操作                                                               */
 /* ------------------------------------------------------------------ */
 function doMove(dir) {
+  if (editMode) return;
   if (!game || game.status === "won") return;
   ensureAudio();
   const res = game.move(dir);
@@ -334,6 +359,7 @@ function doMove(dir) {
 }
 
 function doUndo() {
+  if (editMode) return;
   if (!game.canUndo()) return;
   clearHeld();
   game.undo();
@@ -345,6 +371,7 @@ function doUndo() {
 }
 
 function doRestart() {
+  if (editMode) return;
   clearHeld();
   game.reset(LEVELS[currentLevelIndex]);
   bestSteps = loadBest(game.level);
@@ -373,6 +400,7 @@ function updateLevelButtons() {
 
 function switchLevel(index) {
   if (!LEVELS[index] || index === currentLevelIndex) return false;
+  if (editMode) exitEditMode();
   clearHeld();
   currentLevelIndex = index;
   game.reset(LEVELS[index]);
@@ -385,6 +413,309 @@ function switchLevel(index) {
   sfx.move();
   return true;
 }
+
+/* ------------------------------------------------------------------ */
+/* 开发者：布局编辑器（点击「编辑布局」进入）                          */
+/* ------------------------------------------------------------------ */
+function cloneLevel(level) {
+  return JSON.parse(JSON.stringify(level));
+}
+
+function normalizeLevel(lv, base) {
+  const chars = Array.isArray(lv.chars) ? lv.chars : [];
+  const int = (v, fallback) => (Number.isFinite(v) ? Math.floor(v) : fallback);
+  return {
+    ...base,
+    id: base.id,
+    name: base.name,
+    cols: base.cols,
+    rows: base.rows,
+    seed: Number.isFinite(lv.seed) ? lv.seed : base.seed,
+    wallRect: { ...base.wallRect, ...(lv.wallRect || {}) },
+    door: lv.door
+      ? { x: int(lv.door.x, base.door.x), y: int(lv.door.y, base.door.y) }
+      : { ...base.door },
+    player: lv.player
+      ? { x: int(lv.player.x, base.player.x), y: int(lv.player.y, base.player.y) }
+      : { ...base.player },
+    chars: chars
+      .filter((c) => c && typeof c.type === "string" && Number.isFinite(c.x) && Number.isFinite(c.y))
+      .map((c) => ({ type: c.type, x: Math.floor(c.x), y: Math.floor(c.y) })),
+    objectives: Array.isArray(lv.objectives) && lv.objectives.length ? lv.objectives : base.objectives,
+  };
+}
+
+function loadCustomLevels() {
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_LEVELS_KEY);
+    const data = raw ? JSON.parse(raw) : null;
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCustomLevels(data) {
+  try {
+    window.localStorage.setItem(CUSTOM_LEVELS_KEY, JSON.stringify(data));
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 启动时把本机保存过的自定义布局应用到对应关卡 */
+function applySavedLevels() {
+  const saved = loadCustomLevels();
+  let changed = false;
+  for (let i = 0; i < LEVELS.length; i++) {
+    const base = ORIGINAL_LEVELS[i];
+    const s = saved[base.id];
+    if (s && Array.isArray(s.chars)) {
+      LEVELS[i] = normalizeLevel(s, base);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function editStatus(msg) {
+  if (els.editStatus) els.editStatus.textContent = msg;
+}
+
+function buildPalette() {
+  if (!els.editPalette) return;
+  els.editPalette.innerHTML = "";
+  const types = Object.keys(TYPE_INFO).filter((t) => t !== "我" && t !== "墙" && t !== "门");
+  for (const type of types) {
+    let btn = null;
+    if (typeof document.createElement === "function") {
+      btn = document.createElement("button");
+    } else {
+      btn = { addEventListener() {}, classList: { add() {}, remove() {}, toggle() {} } };
+    }
+    btn.type = "button";
+    if (btn.className !== undefined) btn.className = "btn tiny palette-item";
+    btn.textContent = type;
+    btn.title = type;
+    if (editTool.kind === "char" && editTool.type === type && btn.classList) btn.classList.add("active");
+    btn.addEventListener("click", () => {
+      editTool = { kind: "char", type };
+      buildPalette();
+      editStatus(`当前工具：放置「${type}」`);
+    });
+    if (els.editPalette.appendChild) els.editPalette.appendChild(btn);
+  }
+}
+
+function editButtonState() {
+  if (!els.editToggle) return;
+  if (els.editToggle.classList) els.editToggle.classList.toggle("active", editMode);
+  if (els.editToggle.setAttribute) els.editToggle.setAttribute("aria-pressed", editMode ? "true" : "false");
+}
+
+function applyEditPreview() {
+  if (!editLevel) return;
+  game.reset(editLevel);
+  bestSteps = loadBest(game.level);
+  if (layout) camera = computeCamera(game, layout);
+  syncHud();
+}
+
+function enterEditMode() {
+  if (editMode) return false;
+  clearHeld();
+  editLevel = cloneLevel(game.level);
+  editMode = true;
+  hideWin();
+  if (els.editor) els.editor.classList.remove("hidden");
+  editButtonState();
+  buildPalette();
+  editStatus("选择工具后点击画布格子；「保存布局」后刷新仍保留（本机）");
+  syncHud();
+  return true;
+}
+
+function exitEditMode() {
+  if (!editMode) return false;
+  editMode = false;
+  editLevel = null;
+  if (els.editor) els.editor.classList.add("hidden");
+  editButtonState();
+  game.reset(LEVELS[currentLevelIndex]);
+  bestSteps = loadBest(game.level);
+  if (layout) camera = computeCamera(game, layout);
+  syncHud();
+  return true;
+}
+
+function editPlaceAt(x, y) {
+  if (!editMode || !editLevel) return false;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  if (x < 0 || y < 0 || x >= editLevel.cols || y >= editLevel.rows) {
+    editStatus("超出地图范围");
+    return false;
+  }
+  const wr = editLevel.wallRect;
+  const onBorder = x === wr.x1 || x === wr.x2 || y === wr.y1 || y === wr.y2;
+  const isWallCell = onBorder && !(x === editLevel.door.x && y === editLevel.door.y);
+
+  if (editTool.kind === "door") {
+    if (!onBorder) {
+      editStatus("门必须放在围墙边界上（wallRect 的一圈）");
+      return false;
+    }
+    editLevel.door = { x, y };
+    removeCharAt(editLevel, x, y);
+    editStatus(`门 → (${x},${y})`);
+  } else if (editTool.kind === "player") {
+    if (isWallCell) {
+      editStatus("玩家起点不能放在墙上");
+      return false;
+    }
+    editLevel.player = { x, y };
+    removeCharAt(editLevel, x, y);
+    editStatus(`玩家起点 → (${x},${y})`);
+  } else if (editTool.kind === "erase") {
+    if (isWallCell) {
+      editStatus("墙格不能擦除（墙由 wallRect 决定）");
+      return false;
+    }
+    const removed = removeCharAt(editLevel, x, y);
+    editStatus(removed ? `已删除 (${x},${y}) 的「${removed.type}」` : `(${x},${y}) 没有文字`);
+  } else {
+    if (isWallCell) {
+      editStatus("墙格不能放字（墙由 wallRect 决定）");
+      return false;
+    }
+    if (x === editLevel.door.x && y === editLevel.door.y) {
+      editStatus("门格不能放字");
+      return false;
+    }
+    removeCharAt(editLevel, x, y);
+    editLevel.chars.push({ type: editTool.type, x, y });
+    editStatus(`「${editTool.type}」→ (${x},${y})`);
+  }
+  applyEditPreview();
+  return true;
+}
+
+function removeCharAt(level, x, y) {
+  const i = level.chars.findIndex((c) => c.x === x && c.y === y);
+  if (i < 0) return null;
+  const [removed] = level.chars.splice(i, 1);
+  return removed;
+}
+
+function saveEditLevel() {
+  if (!editMode || !editLevel) return false;
+  const base = ORIGINAL_LEVELS[currentLevelIndex];
+  const normalized = normalizeLevel(editLevel, base);
+  LEVELS[currentLevelIndex] = normalized;
+  editLevel = cloneLevel(normalized);
+  const saved = loadCustomLevels();
+  saved[base.id] = normalized;
+  saveCustomLevels(saved);
+  applyEditPreview();
+  editStatus("已保存到本机（localStorage，刷新后仍生效）");
+  return true;
+}
+
+function resetEditLevel() {
+  if (!editMode) return false;
+  const base = ORIGINAL_LEVELS[currentLevelIndex];
+  const saved = loadCustomLevels();
+  delete saved[base.id];
+  saveCustomLevels(saved);
+  LEVELS[currentLevelIndex] = cloneLevel(base);
+  editLevel = cloneLevel(base);
+  applyEditPreview();
+  editStatus("已还原为该关默认布局");
+  return true;
+}
+
+function exportEditJSON() {
+  if (!editLevel) return "";
+  return JSON.stringify(editLevel, null, 2);
+}
+
+function importEditJSON(text) {
+  if (!editMode) return false;
+  try {
+    const data = JSON.parse(text);
+    if (!data || !Array.isArray(data.chars)) throw new Error("JSON 里缺少 chars 数组");
+    editLevel = normalizeLevel(data, ORIGINAL_LEVELS[currentLevelIndex]);
+    applyEditPreview();
+    editStatus("已导入布局（记得点「保存布局」）");
+    return true;
+  } catch (err) {
+    editStatus(`导入失败：${err.message}`);
+    return false;
+  }
+}
+
+function showExportJSON() {
+  const json = exportEditJSON();
+  if (!json) return;
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(json).then(
+        () => editStatus("已复制 JSON 到剪贴板"),
+        () => editStatus("复制失败，请手动全选复制")
+      );
+      return;
+    }
+  } catch {
+    /* 继续用 prompt */
+  }
+  try {
+    if (typeof prompt === "function") prompt("布局 JSON（Ctrl+C 复制）：", json);
+  } catch {
+    editStatus("当前环境无法复制，请从控制台调用 editApi.exportJSON()");
+  }
+}
+
+function showImportJSON() {
+  try {
+    const text = typeof prompt === "function" ? prompt("粘贴布局 JSON：") : null;
+    if (text) importEditJSON(text);
+  } catch {
+    editStatus("当前环境无法输入 JSON，请调用 editApi.importJSON(text)");
+  }
+}
+
+function handleEditPointer(e) {
+  if (!layout || !editLevel) return;
+  const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+  const cw = rect && rect.width ? rect.width : width;
+  const ch = rect && rect.height ? rect.height : height;
+  const sx = ((e.clientX - (rect ? rect.left : 0)) / cw) * width;
+  const sy = ((e.clientY - (rect ? rect.top : 0)) / ch) * height;
+  const cam = camera || computeCamera(game, layout);
+  const x = Math.floor((sx + cam.x) / layout.cell);
+  const y = Math.floor((sy + cam.y) / layout.cell);
+  editPlaceAt(x, y);
+}
+
+const editApi = {
+  enter: enterEditMode,
+  exit: exitEditMode,
+  isActive: () => editMode,
+  selectChar: (type) => {
+    editTool = { kind: "char", type };
+    buildPalette();
+  },
+  selectTool: (kind) => {
+    editTool = { kind };
+    editStatus(`当前工具：${kind}`);
+  },
+  place: editPlaceAt,
+  save: saveEditLevel,
+  reset: resetEditLevel,
+  exportJSON: exportEditJSON,
+  importJSON: importEditJSON,
+  getLevel: () => (editLevel ? cloneLevel(editLevel) : null),
+  status: () => (els.editStatus ? els.editStatus.textContent : ""),
+};
 
 const KEY_DIRS = {
   ArrowUp: "up",
@@ -435,6 +766,23 @@ function bindInput() {
   if (els.levelChallenge && els.levelChallenge.addEventListener) {
     els.levelChallenge.addEventListener("click", () => switchLevel(1));
   }
+  // 开发者布局编辑器
+  if (els.editToggle) els.editToggle.addEventListener("click", () => (editMode ? exitEditMode() : enterEditMode()));
+  if (els.editClose) els.editClose.addEventListener("click", () => exitEditMode());
+  if (els.editPlayer) els.editPlayer.addEventListener("click", () => { editTool = { kind: "player" }; editStatus("点击格子设置玩家起点"); });
+  if (els.editDoor) els.editDoor.addEventListener("click", () => { editTool = { kind: "door" }; editStatus("点击围墙边界上的格子放门"); });
+  if (els.editErase) els.editErase.addEventListener("click", () => { editTool = { kind: "erase" }; editStatus("点击格子擦除文字"); });
+  if (els.editClear) els.editClear.addEventListener("click", () => {
+    if (editLevel) {
+      editLevel.chars = [];
+      applyEditPreview();
+      editStatus("已清空全部文字（可点「还原默认」恢复）");
+    }
+  });
+  if (els.editSave) els.editSave.addEventListener("click", saveEditLevel);
+  if (els.editExport) els.editExport.addEventListener("click", showExportJSON);
+  if (els.editImport) els.editImport.addEventListener("click", showImportJSON);
+  if (els.editReset) els.editReset.addEventListener("click", resetEditLevel);
   if (els.rulesToggle && els.rulesToggle.addEventListener) {
     els.rulesToggle.addEventListener("click", () => {
       if (els.rules) els.rules.classList.toggle("hidden");
@@ -461,6 +809,10 @@ function bindInput() {
   if (canvas && canvas.addEventListener) {
     let start = null;
     canvas.addEventListener("pointerdown", (e) => {
+      if (editMode) {
+        handleEditPointer(e);
+        return;
+      }
       start = { x: e.clientX, y: e.clientY };
       ensureAudio();
     });
@@ -539,9 +891,16 @@ function frame(now) {
 
 function boot() {
   resize();
+  // 启动时应用本机保存过的自定义布局
+  if (applySavedLevels()) {
+    game.reset(LEVELS[currentLevelIndex]);
+    bestSteps = loadBest(game.level);
+    if (layout) camera = computeCamera(game, layout);
+  }
   buildRulesPanel();
   bindInput();
   updateLevelButtons();
+  editButtonState();
   syncHud();
   if (typeof window !== "undefined" && window.addEventListener) {
     window.addEventListener("resize", resize);
@@ -565,4 +924,4 @@ if (typeof document !== "undefined") {
 }
 
 // 供测试 / 调试使用
-export { game, doMove, doUndo, doRestart, switchLevel, syncHud, resize, INPUT_CONFIG, LEVELS };
+export { game, doMove, doUndo, doRestart, switchLevel, syncHud, resize, INPUT_CONFIG, LEVELS, editApi };

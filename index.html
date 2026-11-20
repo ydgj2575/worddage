@@ -20,6 +20,7 @@
       <span class="chip ghost" id="best">最佳 —</span>
       <button class="btn small level-btn" id="level-main" type="button" aria-pressed="true">基础关</button>
       <button class="btn small level-btn" id="level-challenge" type="button" aria-pressed="false">新内容挑战</button>
+      <button class="btn small" id="edit-toggle" type="button">编辑布局</button>
       <button class="btn small" id="undo" type="button">撤销</button>
       <button class="btn small" id="restart" type="button">重开</button>
       <button class="btn small accent" id="rules-toggle" type="button">规则</button>
@@ -29,6 +30,26 @@
   <section class="stage" id="stage">
     <canvas id="game" aria-label="文字游戏画面"></canvas>
     <p class="banner" id="banner">小地图未开启 · 找到并靠近「目」可开启 · 目标：月+铁→钥，或破墙而出</p>
+
+    <!-- 开发者：可视化布局编辑器（点「编辑布局」打开） -->
+    <div class="editor hidden" id="editor">
+      <div class="editor-row">
+        <span class="editor-title">布局编辑</span>
+        <span class="editor-status" id="edit-status">选择工具后点击画布格子</span>
+      </div>
+      <div class="editor-row editor-tools">
+        <button class="btn tiny" id="edit-player" type="button">玩家起点</button>
+        <button class="btn tiny" id="edit-door" type="button">门</button>
+        <button class="btn tiny" id="edit-erase" type="button">擦除文字</button>
+        <button class="btn tiny" id="edit-clear" type="button">清空文字</button>
+        <button class="btn tiny" id="edit-save" type="button">保存布局</button>
+        <button class="btn tiny" id="edit-export" type="button">导出 JSON</button>
+        <button class="btn tiny" id="edit-import" type="button">导入 JSON</button>
+        <button class="btn tiny" id="edit-reset" type="button">还原默认</button>
+        <button class="btn tiny accent" id="edit-close" type="button">退出编辑</button>
+      </div>
+      <div class="editor-row editor-palette" id="edit-palette"></div>
+    </div>
 
     <!-- 触屏方向键 -->
     <div class="dpad" aria-label="方向键">

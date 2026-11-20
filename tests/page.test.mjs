@@ -75,6 +75,8 @@ const ids = [
   "game", "steps", "best", "undo", "restart", "rules-toggle", "rules",
   "win-overlay", "win-title", "win-desc", "win-steps", "again", "stage", "banner",
   "level-main", "level-challenge",
+  "edit-toggle", "editor", "edit-status", "edit-palette", "edit-player", "edit-door",
+  "edit-erase", "edit-clear", "edit-save", "edit-export", "edit-import", "edit-reset", "edit-close",
 ];
 for (const id of ids) elements[id] = new El(id, id === "game" ? "canvas" : "div");
 elements.game.width = 0;
@@ -226,6 +228,31 @@ check("挑战关弹窗显示 34 步", elements["win-steps"].textContent.includes
 elements["level-main"].dispatch("click");
 check("切回基础关", game.level.id === "main" && game.player.x === 193 && game.status === "playing");
 check("基础关最佳仍为 15", elements.best.textContent.includes("15"), elements.best.textContent);
+
+console.log("\n[7] 开发者布局编辑器");
+const { editApi } = mod;
+check("导出编辑接口", editApi && typeof editApi.enter === "function" && typeof editApi.place === "function");
+check("进入编辑模式", editApi.enter() === true && editApi.isActive() === true);
+check("横幅提示布局编辑", elements.banner.textContent.includes("布局编辑"), elements.banner.textContent);
+editApi.selectChar("菜");
+check("在 (10,10) 放下「菜」", editApi.place(10, 10) === true);
+const placed = editApi.getLevel().chars.find((c) => c.type === "菜" && c.x === 10 && c.y === 10);
+check("编辑数据里出现「菜」", !!placed);
+check("预览里也能看到「菜」", game.charAt(10, 10) && game.charAt(10, 10).type === "菜");
+check("墙格不能放字", editApi.place(2, 10) === false);
+editApi.selectTool("player");
+check("可以移动玩家起点", editApi.place(150, 100) === true && editApi.getLevel().player.x === 150);
+editApi.selectChar("刀");
+editApi.place(151, 100);
+check("保存布局写入 localStorage", editApi.save() === true && (storage.get("worddage:levels") || "").includes("main"));
+check("保存后 LEVELS 已更新", mod.LEVELS[0].chars.some((c) => c.type === "菜" && c.x === 10 && c.y === 10));
+const exported = editApi.exportJSON();
+check("导出 JSON 可解析", (() => { try { return JSON.parse(exported).chars.length > 0; } catch { return false; } })());
+editApi.reset();
+check("还原默认后 (10,10) 不再有菜", !editApi.getLevel().chars.some((c) => c.type === "菜" && c.x === 10 && c.y === 10));
+check("还原默认后 localStorage 无自定义布局", !(storage.get("worddage:levels") || "").includes("main"));
+check("退出编辑模式", editApi.exit() === true && editApi.isActive() === false);
+check("退出后横幅恢复正常", elements.banner.textContent.includes("小地图"), elements.banner.textContent);
 
 console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项\n`);
 if (fail > 0) process.exit(1);
