@@ -74,6 +74,7 @@ const elements = {};
 const ids = [
   "game", "steps", "best", "undo", "restart", "rules-toggle", "rules",
   "win-overlay", "win-title", "win-desc", "win-steps", "again", "stage", "banner",
+  "level-main", "level-challenge",
 ];
 for (const id of ids) elements[id] = new El(id, id === "game" ? "canvas" : "div");
 elements.game.width = 0;
@@ -195,12 +196,36 @@ await new Promise((r) => setTimeout(r, 650));
 check("通关弹窗显示", !elements["win-overlay"].classList.contains("hidden"));
 check("弹窗标题正确", elements["win-title"].textContent === "门开了", elements["win-title"].textContent);
 check("弹窗显示步数", elements["win-steps"].textContent.includes("15"), elements["win-steps"].textContent);
-check("最佳步数写入 localStorage", storage.get("worddage:best") === "15", storage.get("worddage:best"));
+check("最佳步数写入 localStorage", storage.get("worddage:best:main") === "15", storage.get("worddage:best:main"));
 
 console.log("\n[5] 重开");
 doRestart();
 check("重开后回到初始状态", game.player.x === 193 && game.steps === 0 && game.status === "playing");
 check("重开后隐藏弹窗", elements["win-overlay"].classList.contains("hidden"));
+
+console.log("\n[6] 关卡选择：新内容挑战");
+const { switchLevel, LEVELS } = mod;
+check("导出两个关卡", Array.isArray(LEVELS) && LEVELS.length === 2 && LEVELS[1].id === "challenge");
+check("有「新内容挑战」按钮", !!elements["level-challenge"]);
+elements["level-challenge"].dispatch("click");
+check("点击后切换到挑战关", game.level.id === "challenge", game.level && game.level.id);
+check("挑战关横幅显示关卡名", elements.banner.textContent.includes("新内容挑战"), elements.banner.textContent);
+check("挑战关初始无铁（必须自己合成）", !game.hasChar("铁"));
+check("切换关卡后挑战关最佳为空", elements.best.textContent.includes("最佳 —"), elements.best.textContent);
+const challengeRoute = ("RRRRRRRRR" + "D" + "L" + "DDD" + "D" + "R" + "U" + "R" + "U" +
+  "R" + "U" + "L" + "D" + "L" + "U" + "D" + "L" + "L" + "U" + "RRRRR").split("");
+for (const m of challengeRoute) {
+  doMove({ L: "left", R: "right", U: "up", D: "down" }[m]);
+}
+check("挑战关路线 34 步通关", game.status === "won" && game.winReason === "door" && game.steps === 34,
+  `${game.steps},${game.winReason}`);
+await new Promise((r) => setTimeout(r, 650));
+check("挑战关最佳步数单独记录", storage.get("worddage:best:challenge") === "34",
+  storage.get("worddage:best:challenge"));
+check("挑战关弹窗显示 34 步", elements["win-steps"].textContent.includes("34"), elements["win-steps"].textContent);
+elements["level-main"].dispatch("click");
+check("切回基础关", game.level.id === "main" && game.player.x === 193 && game.status === "playing");
+check("基础关最佳仍为 15", elements.best.textContent.includes("15"), elements.best.textContent);
 
 console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项\n`);
 if (fail > 0) process.exit(1);

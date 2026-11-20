@@ -3,7 +3,7 @@
  * 对应 2026.11.18 新策划案：新增字/蚏/目/风、新合成规则、删除「肤」
  * 运行：node tests/engine.test.mjs
  */
-import { Game, DEFAULT_LEVEL } from "../js/engine.js";
+import { Game, DEFAULT_LEVEL, CHALLENGE_LEVEL, LEVELS } from "../js/engine.js";
 import { computeLayout, computeCamera } from "../js/art.js";
 
 let pass = 0;
@@ -338,6 +338,19 @@ console.log("\n[12] 通关路线：破墙（水+墙→蔷，火+蔷→破墙，�
   check("破墙路线 24 步", g.steps === 24, g.steps);
   check("记录了破口", g.breaches.has("193,134"), [...g.breaches].join(";"));
   check("路线执行没有卡住", r && r.moved !== false);
+}
+
+console.log("\n[12b] 第二关 · 新内容挑战（新合成链造铁→钥→门）");
+{
+  const g = new Game(CHALLENGE_LEVEL);
+  check("挑战关存在且初始没有「铁」", !has(g, "铁") && g.level.id === "challenge");
+  const seq = "RRRRRRRRR" + "D" + "L" + "DDD" + "D" + "R" + "U" + "R" + "U" +
+    "R" + "U" + "L" + "D" + "L" + "U" + "D" + "L" + "L" + "U" + "RRRRR";
+  const r = run(g, seq);
+  check("挑战关 34 步通关", g.status === "won" && g.winReason === "door" && g.steps === 34,
+    `${g.steps},${g.winReason}`);
+  check("挑战关路线用到新合成链（容/熔/铁均已消耗）", !has(g, "熔") && !has(g, "容") && r && r.moved !== false);
+  check("导出 LEVELS 含两关", LEVELS.length === 2 && LEVELS[0].id === "main" && LEVELS[1].id === "challenge");
 }
 
 console.log("\n[13] 撤销 / 重置");

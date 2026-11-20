@@ -309,6 +309,19 @@ body {
   color: #7d8a95;
 }
 
+/* ---------------- 关卡选择按钮 ---------------- */
+.level-btn {
+  border-color: rgba(120, 150, 140, 0.5);
+  color: #3f5f55;
+  background: rgba(255, 252, 244, 0.75);
+}
+.level-btn.active {
+  background: #3f6f5f;
+  border-color: #3f6f5f;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(63, 111, 95, 0.35);
+}
+
 /* ---------------- 底部 ---------------- */
 .footer {
   display: flex;

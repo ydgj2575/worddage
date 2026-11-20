@@ -2,7 +2,7 @@
  * 文字游戏 · 入口与交互层
  * 负责：画布尺寸/DPR、键盘与滑动输入、HUD 与弹窗、音效、反应特效调度。
  */
-import { Game, RULE_HINTS, TYPE_INFO } from "./engine.js";
+import { Game, RULE_HINTS, TYPE_INFO, LEVELS } from "./engine.js";
 import { computeLayout, computeCamera, drawScene } from "./art.js";
 
 /* ================================================================== */
@@ -34,9 +34,11 @@ const els = {
   again: $("again"),
   stage: $("stage"),
   banner: $("banner"),
+  levelMain: $("level-main"),
+  levelChallenge: $("level-challenge"),
 };
 
-const game = new Game();
+const game = new Game(LEVELS[0]);
 const fx = [];
 let layout = null;
 let camera = null; // 摄像机（跟随「我」，平滑插值）
@@ -44,6 +46,7 @@ let lastNow = 0;
 let width = 960;
 let height = 640;
 let bestSteps = 0;
+let currentLevelIndex = 0;
 let audioCtx = null;
 
 /* 按住连续移动的状态 */
@@ -77,8 +80,30 @@ function stopHold(dir) {
   holdFirstPending = true;
 }
 
+/* ------------------------------------------------------------------ */
+/* 关卡与最佳成绩（每个关卡独立记录）                                  */
+/* ------------------------------------------------------------------ */
+function bestKeyFor(level) {
+  return `worddage:best:${(level && level.id) || "main"}`;
+}
+
+function loadBest(level) {
+  try {
+    const key = bestKeyFor(level);
+    const raw = window.localStorage.getItem(key);
+    if (raw != null) return Number(raw || 0) || 0;
+    // 兼容旧版本只存过一个「worddage:best」
+    if (((level && level.id) || "main") === "main") {
+      return Number(window.localStorage.getItem("worddage:best") || 0) || 0;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 try {
-  bestSteps = Number(window.localStorage.getItem("worddage:best") || 0) || 0;
+  bestSteps = loadBest(game.level);
 } catch {
   bestSteps = 0;
 }
@@ -200,15 +225,16 @@ function syncHud() {
   }
   if (els.banner) {
     const escaped = game.breaches.size > 0;
+    const levelName = game.level && game.level.name ? `【${game.level.name}】` : "";
     let text;
     if (game.status === "won") {
-      text = "通关！";
+      text = levelName + "通关！";
     } else if (escaped) {
-      text = "围墙已被破开！走到墙外也可通关";
+      text = levelName + "围墙已被破开！走到墙外也可通关";
     } else if (game.isMinimapActive()) {
-      text = "靠近「目」：小地图已开启 · 目标：月+铁→钥，或破墙而出";
+      text = levelName + "靠近「目」：小地图已开启 · 目标：月+铁→钥，或破墙而出";
     } else {
-      text = "小地图未开启 · 找到并靠近「目」可开启 · 目标：月+铁→钥，或破墙而出";
+      text = levelName + "小地图未开启 · 找到并靠近「目」可开启 · 目标：月+铁→钥，或破墙而出";
     }
     els.banner.textContent = text;
   }
@@ -219,7 +245,11 @@ function updateBest() {
   if (bestSteps === 0 || game.steps < bestSteps) {
     bestSteps = game.steps;
     try {
-      window.localStorage.setItem("worddage:best", String(bestSteps));
+      window.localStorage.setItem(bestKeyFor(game.level), String(bestSteps));
+      // 兼容旧 key：主关也写一份
+      if ((game.level.id || "main") === "main") {
+        window.localStorage.setItem("worddage:best", String(bestSteps));
+      }
     } catch {
       /* 忽略 */
     }
@@ -316,12 +346,44 @@ function doUndo() {
 
 function doRestart() {
   clearHeld();
-  game.reset();
+  game.reset(LEVELS[currentLevelIndex]);
+  bestSteps = loadBest(game.level);
   fx.length = 0;
   hideWin();
   syncHud();
   if (layout) camera = computeCamera(game, layout);
   sfx.move();
+}
+
+/* ------------------------------------------------------------------ */
+/* 关卡选择                                                           */
+/* ------------------------------------------------------------------ */
+function updateLevelButtons() {
+  const pairs = [
+    [0, els.levelMain],
+    [1, els.levelChallenge],
+  ];
+  for (const [i, btn] of pairs) {
+    if (!btn) continue;
+    const active = i === currentLevelIndex;
+    if (btn.classList) btn.classList.toggle("active", active);
+    if (btn.setAttribute) btn.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+}
+
+function switchLevel(index) {
+  if (!LEVELS[index] || index === currentLevelIndex) return false;
+  clearHeld();
+  currentLevelIndex = index;
+  game.reset(LEVELS[index]);
+  bestSteps = loadBest(game.level);
+  fx.length = 0;
+  hideWin();
+  syncHud();
+  if (layout) camera = computeCamera(game, layout);
+  updateLevelButtons();
+  sfx.move();
+  return true;
 }
 
 const KEY_DIRS = {
@@ -369,6 +431,10 @@ function bindInput() {
   if (els.undo && els.undo.addEventListener) els.undo.addEventListener("click", doUndo);
   if (els.restart && els.restart.addEventListener) els.restart.addEventListener("click", doRestart);
   if (els.again && els.again.addEventListener) els.again.addEventListener("click", doRestart);
+  if (els.levelMain && els.levelMain.addEventListener) els.levelMain.addEventListener("click", () => switchLevel(0));
+  if (els.levelChallenge && els.levelChallenge.addEventListener) {
+    els.levelChallenge.addEventListener("click", () => switchLevel(1));
+  }
   if (els.rulesToggle && els.rulesToggle.addEventListener) {
     els.rulesToggle.addEventListener("click", () => {
       if (els.rules) els.rules.classList.toggle("hidden");
@@ -475,6 +541,7 @@ function boot() {
   resize();
   buildRulesPanel();
   bindInput();
+  updateLevelButtons();
   syncHud();
   if (typeof window !== "undefined" && window.addEventListener) {
     window.addEventListener("resize", resize);
@@ -498,4 +565,4 @@ if (typeof document !== "undefined") {
 }
 
 // 供测试 / 调试使用
-export { game, doMove, doUndo, doRestart, syncHud, resize, INPUT_CONFIG };
+export { game, doMove, doUndo, doRestart, switchLevel, syncHud, resize, INPUT_CONFIG, LEVELS };

@@ -100,6 +100,8 @@ const K = (a, b) => [a, b].sort().join("|");
 
 /** 默认关卡：超大地图 209×136，围墙内缩一圈（破墙后可以走到墙外） */
 export const DEFAULT_LEVEL = {
+  id: "main",
+  name: "第一关 · 月与门",
   cols: 209,
   rows: 136,
   seed: 20261118,
@@ -175,6 +177,72 @@ export const DEFAULT_LEVEL = {
     "蚏 + 伐 → 蚏停止，再用刀打出虫+月",
   ],
 };
+
+/**
+ * 第二关 · 新内容挑战（2026.11.18 新增）
+ * 目标：不直接给「铁」，必须用新合成链造出铁，再合成钥开门：
+ *   穴 + 谷 → 容 → 容 + 火 → 熔 → 熔 + 刀 → 铁 → 月 + 铁 → 钥 → 门
+ * 同时展示：目（小地图）、蚏（随机移动）与新字。
+ */
+export const CHALLENGE_LEVEL = {
+  id: "challenge",
+  name: "第二关 · 新内容挑战",
+  cols: 209,
+  rows: 136,
+  seed: 20261118,
+  wallRect: { x1: 2, y1: 1, x2: 206, y2: 134 },
+  door: { x: 206, y: 130 },
+  player: { x: 193, y: 128 },
+  chars: [
+    // —— 新合成链（右下角，从右往左依次触发）——
+    { type: "刀", x: 203, y: 130 },
+    { type: "穴", x: 202, y: 129 },
+    { type: "谷", x: 202, y: 130 },
+    { type: "火", x: 202, y: 131 },
+    { type: "月", x: 205, y: 130 },
+    { type: "目", x: 198, y: 126 }, // 靠近时开启小地图
+    // —— 新字展示（不挡主线）——
+    { type: "蚏", x: 170, y: 120 },
+    { type: "戈", x: 186, y: 126 },
+    { type: "人", x: 187, y: 126 },
+    { type: "菜", x: 188, y: 126 },
+    { type: "相", x: 189, y: 126 },
+    { type: "贝", x: 184, y: 126 },
+    { type: "勾", x: 185, y: 126 },
+    { type: "山", x: 183, y: 126 },
+    { type: "榕", x: 182, y: 126 },
+    { type: "木", x: 181, y: 126 },
+    { type: "林", x: 180, y: 126 },
+    { type: "森", x: 179, y: 126 },
+    { type: "穴", x: 178, y: 126 },
+    { type: "谷", x: 177, y: 126 },
+    { type: "风", x: 176, y: 126 },
+    { type: "水", x: 175, y: 126 },
+    { type: "肉", x: 160, y: 90 },
+    { type: "果", x: 161, y: 90 },
+    { type: "灶", x: 162, y: 90 },
+    { type: "采", x: 163, y: 90 },
+    { type: "伐", x: 164, y: 90 },
+    { type: "虫", x: 165, y: 90 },
+    { type: "购", x: 166, y: 90 },
+    { type: "猪", x: 175, y: 128 },
+    { type: "石", x: 20, y: 20 },
+    { type: "波", x: 40, y: 60 },
+  ],
+  objectives: [
+    "新内容挑战：用新合成链造出「铁」再开门",
+    "穴 + 谷 → 容",
+    "容 + 火 → 熔",
+    "熔 + 刀 → 铁",
+    "月 + 铁 → 钥，推钥撞门",
+  ],
+};
+
+/** 全部关卡（网页端关卡选择用） */
+export const LEVELS = [DEFAULT_LEVEL, CHALLENGE_LEVEL];
+
+/** 蚏以诞生点为中心活动（切比雪夫半径） */
+export const WANDER_RADIUS = 5;
 
 function keyOf(x, y) {
   return x + "," + y;
@@ -485,6 +553,8 @@ export class Game {
     const nx = c.x + dir.dx;
     const ny = c.y + dir.dy;
     if (!this.inBounds(nx, ny)) return false;
+    // 「以诞生点为中心」随机移动：超出活动范围就返回
+    if (Math.max(Math.abs(nx - c.spawnX), Math.abs(ny - c.spawnY)) > WANDER_RADIUS) return false;
     if (this.isWall(nx, ny) || this.isDoor(nx, ny)) return false;
     if (this.charAt(nx, ny)) return false;
     if (nx === this.player.x && ny === this.player.y) return false;
