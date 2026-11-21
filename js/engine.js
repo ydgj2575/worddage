@@ -67,9 +67,34 @@ export const TYPE_INFO = {
   穴: { color: "#8a7a9a", name: "穴" },
   虫: { color: "#9a9a4c", name: "虫" },
   购: { color: "#c9a04c", name: "购" },
+  // —— 2026.11.20 新增字 ——
+  河: { color: "#4f8fc9", name: "河" },
+  池: { color: "#5fb0d0", name: "池" },
+  可: { color: "#9a8f6a", name: "可" },
+  客: { color: "#b08f7a", name: "客" },
+  朋: { color: "#c99a6a", name: "朋" },
+  芀: { color: "#8faf5f", name: "芀" },
+  // —— 2026.11.21 新增字 ——
+  鸟: { color: "#c9b05a", name: "鸟" },
+  蛇: { color: "#6a8f4c", name: "蛇" },
+  湖: { color: "#3f7fb0", name: "湖" },
 };
 
-/** 反应规则说明（用于界面提示；按 2026.11.18 新策划案） */
+/** 多格字：山/森/湖 占 3×3，林/池 占 2×2，其余字占 1 格 */
+export const CHAR_SIZES = {
+  山: 3,
+  森: 3,
+  湖: 3,
+  林: 2,
+  池: 2,
+};
+
+/** 某个字占几格（边长） */
+export function charSize(type) {
+  return CHAR_SIZES[type] || 1;
+}
+
+/** 反应规则说明（用于界面提示；按 2026.11.18 + 11.20 + 11.21 新策划案） */
 export const RULE_HINTS = [
   { a: "刀", b: "菜", text: "刀 + 菜 → 采" },
   { a: "刀", b: "相", text: "刀 + 相 → 木 + 目" },
@@ -88,6 +113,9 @@ export const RULE_HINTS = [
   { a: "穴", b: "谷", text: "穴 + 谷 → 容（有方向要求）" },
   { a: "蚏", b: "伐", text: "蚏 + 伐 → 蚏停止移动" },
   { a: "蚏", b: "刀", text: "蚏（已停止）+ 刀 → 虫 + 月" },
+  { a: "刀", b: "河", text: "刀 + 河 → 刀 + 可 + 水" },
+  { a: "朋", b: "刀", text: "朋 + 刀 → 刀 + 月 + 月" },
+  { a: "芀", b: "火", text: "芀 + 火 → 刀" },
   { a: "月", b: "铁", text: "月 + 铁 → 钥（钥可开门）" },
   { a: "皮", b: "石", text: "皮 + 石 → 破" },
   { a: "水", b: "墙", text: "水 + 墙 → 蔷" },
@@ -173,9 +201,14 @@ export class Game {
   /* ---------------- 基础查询 ---------------- */
 
   addChar(type, x, y) {
-    const c = { id: this.nextId++, type, x, y };
+    const c = { id: this.nextId++, type, x, y, size: charSize(type) };
     if (type === "蚏") {
       c.stopped = false;
+      c.spawnX = x;
+      c.spawnY = y;
+      c.wanderDir = this.randomDirName();
+    }
+    if (type === "鸟" || type === "蛇") {
       c.spawnX = x;
       c.spawnY = y;
       c.wanderDir = this.randomDirName();
@@ -194,8 +227,32 @@ export class Game {
     if (i >= 0) this.chars.splice(i, 1);
   }
 
+  /** 某个字覆盖的所有格子（多格字按左上角锚点 + size 计算） */
+  charCells(c) {
+    const s = c.size || charSize(c.type);
+    const cells = [];
+    for (let dx = 0; dx < s; dx++) {
+      for (let dy = 0; dy < s; dy++) {
+        cells.push({ x: c.x + dx, y: c.y + dy });
+      }
+    }
+    return cells;
+  }
+
+  /** 某个字的锚点移动 (dx,dy) 后是否覆盖指定格 */
+  charCoversAfter(c, dx, dy, x, y) {
+    const s = c.size || charSize(c.type);
+    const ax = c.x + dx;
+    const ay = c.y + dy;
+    return x >= ax && x < ax + s && y >= ay && y < ay + s;
+  }
+
   charAt(x, y) {
-    return this.chars.find((c) => c.x === x && c.y === y) || null;
+    for (const c of this.chars) {
+      const s = c.size || charSize(c.type);
+      if (x >= c.x && x < c.x + s && y >= c.y && y < c.y + s) return c;
+    }
+    return null;
   }
 
   isWall(x, y) {
@@ -316,42 +373,60 @@ export class Game {
       return { moved: true, blocked: null, events, status: this.status, winReason: this.winReason };
     }
 
-    // 推动字
-    const mx = nx + dir.dx;
-    const my = ny + dir.dy;
-    if (!this.inBounds(mx, my)) return fail("edge");
+    // 推动字：计算移动后的锚点，以及它覆盖的所有目标格
+    const size = pushed.size || charSize(pushed.type);
+    const mAnchorX = pushed.x + dir.dx;
+    const mAnchorY = pushed.y + dir.dy;
 
-    // 撞墙：只有「破」「水」能对墙起反应
-    if (this.isWall(mx, my)) {
-      const handled = this.applyWallReaction(pushed, { x: mx, y: my }, events);
-      if (!handled) return fail("wall");
-      this.steps += 1;
-      this.history.push(snap);
-      this.updateWanderers(events);
-      return { moved: true, blocked: null, events, status: this.status, winReason: this.winReason };
+    if (mAnchorX < 0 || mAnchorY < 0 || mAnchorX + size > this.cols || mAnchorY + size > this.rows) {
+      return fail("edge");
     }
 
-    // 撞门：只有「钥」能开门
-    if (this.isDoor(mx, my)) {
-      if (pushed.type === "钥") {
-        this.removeChar(pushed);
-        this.status = "won";
-        this.winReason = "door";
-        this.steps += 1;
-        events.push({ type: "win", reason: "door", at: { x: mx, y: my }, key: "钥" });
-        this.history.push(snap);
-        return { moved: true, blocked: null, events, status: this.status, winReason: this.winReason };
+    let other = null;
+    let contact = null;
+    outer: for (let dx = 0; dx < size; dx++) {
+      for (let dy = 0; dy < size; dy++) {
+        const tx = mAnchorX + dx;
+        const ty = mAnchorY + dy;
+        if (this.isWall(tx, ty)) {
+          // 单格字撞墙：只有「破」「水」能对墙起反应；多格字不能破墙
+          if (size === 1) {
+            const handled = this.applyWallReaction(pushed, { x: tx, y: ty }, events);
+            if (!handled) return fail("wall");
+            this.steps += 1;
+            this.history.push(snap);
+            this.updateWanderers(events);
+            return { moved: true, blocked: null, events, status: this.status, winReason: this.winReason };
+          }
+          return fail("wall");
+        }
+        if (this.isDoor(tx, ty)) {
+          if (size === 1 && pushed.type === "钥") {
+            this.removeChar(pushed);
+            this.status = "won";
+            this.winReason = "door";
+            this.steps += 1;
+            events.push({ type: "win", reason: "door", at: { x: tx, y: ty }, key: "钥" });
+            this.history.push(snap);
+            return { moved: true, blocked: null, events, status: this.status, winReason: this.winReason };
+          }
+          return fail("door");
+        }
+        const hit = this.charAt(tx, ty);
+        if (hit && hit !== pushed) {
+          other = hit;
+          contact = { x: tx, y: ty };
+          break outer;
+        }
       }
-      return fail("door");
     }
 
-    const other = this.charAt(mx, my);
     if (!other) {
-      pushed.x = mx;
-      pushed.y = my;
+      pushed.x = mAnchorX;
+      pushed.y = mAnchorY;
       this.player = { x: nx, y: ny };
       this.steps += 1;
-      events.push({ type: "push", char: pushed.type, from: { x: nx, y: ny }, to: { x: mx, y: my } });
+      events.push({ type: "push", char: pushed.type, from: { x: nx, y: ny }, to: { x: mAnchorX, y: mAnchorY } });
       this.history.push(snap);
       this.updateWanderers(events);
       return { moved: true, blocked: null, events, status: this.status, winReason: this.winReason };
@@ -381,7 +456,7 @@ export class Game {
         label: `风把火推了 ${movedCells} 格`,
         removed: [],
         created: [],
-        at: { x: mx, y: my },
+        at: contact,
         moved: ["火"],
       });
       this.history.push(snap);
@@ -398,38 +473,119 @@ export class Game {
     return { moved: true, blocked: null, events, status: this.status, winReason: this.winReason };
   }
 
-  /* ---------------- 蚏的随机移动 ---------------- */
+  /* ---------------- 会移动的字：蚏 / 鸟 / 蛇 ---------------- */
 
   updateWanderers(events) {
+    if (this.status !== "playing") return;
     for (const c of this.chars) {
-      if (c.type !== "蚏" || c.stopped) continue;
-      if (this.status !== "playing") return;
-      const from = { x: c.x, y: c.y };
-      let moved = this.tryWanderMove(c, c.wanderDir);
-      if (!moved) {
-        // 撞到墙/边界/其他字：返回（反向）
-        c.wanderDir = oppositeDir(c.wanderDir);
-        moved = this.tryWanderMove(c, c.wanderDir);
-      }
-      if (moved) {
-        events.push({ type: "wander", char: "蚏", from, to: { x: c.x, y: c.y } });
+      if (c.type === "蚏") {
+        if (c.stopped) continue;
+        this.stepWanderer(c, { radius: WANDER_RADIUS, insideOnly: false }, events);
+      } else if (c.type === "鸟") {
+        // 鸟：可以在「墙」内自由移动
+        this.stepWanderer(c, { radius: null, insideOnly: true }, events);
       }
     }
+    this.updateSnakes(events);
   }
 
-  tryWanderMove(c, dirName) {
+  stepWanderer(c, opts, events) {
+    const from = { x: c.x, y: c.y };
+    let moved = this.tryWanderMove(c, c.wanderDir, opts);
+    if (!moved) {
+      // 撞到墙/边界/字：返回（反向）
+      c.wanderDir = oppositeDir(c.wanderDir);
+      moved = this.tryWanderMove(c, c.wanderDir, opts);
+    }
+    if (moved) events.push({ type: "wander", char: c.type, from, to: { x: c.x, y: c.y } });
+  }
+
+  tryWanderMove(c, dirName, opts = {}) {
     const dir = DIRS[dirName];
     if (!dir) return false;
     const nx = c.x + dir.dx;
     const ny = c.y + dir.dy;
     if (!this.inBounds(nx, ny)) return false;
-    // 「以诞生点为中心」随机移动：超出活动范围就返回
-    if (Math.max(Math.abs(nx - c.spawnX), Math.abs(ny - c.spawnY)) > WANDER_RADIUS) return false;
+    if (opts.insideOnly && !this.insideRect(nx, ny)) return false;
+    if (opts.radius != null && Math.max(Math.abs(nx - c.spawnX), Math.abs(ny - c.spawnY)) > opts.radius) return false;
     if (this.isWall(nx, ny) || this.isDoor(nx, ny)) return false;
     if (this.charAt(nx, ny)) return false;
     if (nx === this.player.x && ny === this.player.y) return false;
     c.x = nx;
     c.y = ny;
+    return true;
+  }
+
+  /**
+   * 蛇：4 邻接紧挨着的「蛇」视为一个整体，
+   * 每次移动时整组跟随该组第一个蛇（id 最小）一起走。
+   */
+  updateSnakes(events) {
+    const snakes = this.chars.filter((c) => c.type === "蛇");
+    if (!snakes.length) return;
+    const byCell = new Map();
+    for (const s of snakes) byCell.set(keyOf(s.x, s.y), s);
+    const visited = new Set();
+    for (const start of snakes) {
+      if (visited.has(start.id)) continue;
+      const group = [];
+      const queue = [start];
+      visited.add(start.id);
+      while (queue.length) {
+        const s = queue.shift();
+        group.push(s);
+        for (const n of [
+          byCell.get(keyOf(s.x + 1, s.y)),
+          byCell.get(keyOf(s.x - 1, s.y)),
+          byCell.get(keyOf(s.x, s.y + 1)),
+          byCell.get(keyOf(s.x, s.y - 1)),
+        ]) {
+          if (n && !visited.has(n.id)) {
+            visited.add(n.id);
+            queue.push(n);
+          }
+        }
+      }
+      group.sort((a, b) => a.id - b.id);
+      const head = group[0];
+      const before = group.map((s) => ({ x: s.x, y: s.y }));
+      let moved = this.moveSnakeGroup(group, head.wanderDir);
+      if (!moved) {
+        head.wanderDir = oppositeDir(head.wanderDir);
+        moved = this.moveSnakeGroup(group, head.wanderDir);
+      }
+      if (moved) {
+        events.push({
+          type: "wander",
+          char: "蛇",
+          count: group.length,
+          from: before[0],
+          to: { x: head.x, y: head.y },
+        });
+      }
+    }
+  }
+
+  moveSnakeGroup(group, dirName) {
+    const dir = DIRS[dirName];
+    if (!dir) return false;
+    const head = group[0];
+    const groupIds = new Set(group.map((s) => s.id));
+    for (const s of group) {
+      const tx = s.x + dir.dx;
+      const ty = s.y + dir.dy;
+      if (!this.inBounds(tx, ty)) return false;
+      // 蛇一般在「穴」附近活动，限制在诞生点附近
+      if (Math.max(Math.abs(tx - head.spawnX), Math.abs(ty - head.spawnY)) > 8) return false;
+      if (this.isWall(tx, ty) || this.isDoor(tx, ty)) return false;
+      if (tx === this.player.x && ty === this.player.y) return false;
+      const hit = this.charAt(tx, ty);
+      if (hit && !groupIds.has(hit.id)) return false;
+    }
+    for (const s of group) {
+      s.x += dir.dx;
+      s.y += dir.dy;
+    }
     return true;
   }
 
@@ -624,25 +780,39 @@ export class Game {
       return true;
     }
 
-    // 木 + 木 → 林
+    // 木 + 木 → 林（林占 2×2，需要 2×2 空地）
     if (pair === K("木", "木")) {
       const pos = { x: other.x, y: other.y };
       this.removeChar(pushed);
       this.removeChar(other);
-      this.addChar("林", pos.x, pos.y);
-      events.push({ type: "react", label: "木 + 木 → 林", removed: ["木", "木"], created: ["林"], at: pos });
+      const anchor = this.findEmptyAnchor(2, pos.x, pos.y);
+      if (anchor) this.addChar("林", anchor.x, anchor.y);
+      events.push({
+        type: "react",
+        label: anchor ? "木 + 木 → 林" : "木 + 木（周围没有 2×2 空间，未能生成林）",
+        removed: ["木", "木"],
+        created: anchor ? ["林"] : [],
+        at: anchor || pos,
+      });
       return true;
     }
 
-    // 林 + 木 → 森
+    // 林 + 木 → 森（森占 3×3，需要 3×3 空地）
     if (pair === K("林", "木")) {
       const forest = pushed.type === "林" ? pushed : other;
       const wood = pushed.type === "木" ? pushed : other;
       const pos = { x: forest.x, y: forest.y };
       this.removeChar(forest);
       this.removeChar(wood);
-      this.addChar("森", pos.x, pos.y);
-      events.push({ type: "react", label: "林 + 木 → 森", removed: ["林", "木"], created: ["森"], at: pos });
+      const anchor = this.findEmptyAnchor(3, pos.x, pos.y);
+      if (anchor) this.addChar("森", anchor.x, anchor.y);
+      events.push({
+        type: "react",
+        label: anchor ? "林 + 木 → 森" : "林 + 木（周围没有 3×3 空间，未能生成森）",
+        removed: ["林", "木"],
+        created: anchor ? ["森"] : [],
+        at: anchor || pos,
+      });
       return true;
     }
 
@@ -711,6 +881,56 @@ export class Game {
         at: pos,
         extra: moonPos,
       });
+      return true;
+    }
+
+    // 刀 + 河 → 刀 + 可 + 水（刀保留）
+    if (pair === K("刀", "河")) {
+      const river = pushed.type === "河" ? pushed : other;
+      const pos = { x: river.x, y: river.y };
+      this.removeChar(river);
+      this.addChar("可", pos.x, pos.y);
+      const waterPos = this.findEmptyNeighbor(pos.x, pos.y);
+      if (waterPos) this.addChar("水", waterPos.x, waterPos.y);
+      events.push({
+        type: "react",
+        label: "刀 + 河 → 刀 + 可 + 水",
+        removed: ["河"],
+        created: waterPos ? ["可", "水"] : ["可"],
+        at: pos,
+        extra: waterPos,
+      });
+      return true;
+    }
+
+    // 朋 + 刀 → 刀 + 月 + 月（刀保留）
+    if (pair === K("刀", "朋")) {
+      const friend = pushed.type === "朋" ? pushed : other;
+      const pos = { x: friend.x, y: friend.y };
+      this.removeChar(friend);
+      this.addChar("月", pos.x, pos.y);
+      const moonPos = this.findEmptyNeighbor(pos.x, pos.y);
+      if (moonPos) this.addChar("月", moonPos.x, moonPos.y);
+      events.push({
+        type: "react",
+        label: "朋 + 刀 → 刀 + 月 + 月",
+        removed: ["朋"],
+        created: moonPos ? ["月", "月"] : ["月"],
+        at: pos,
+        extra: moonPos,
+      });
+      return true;
+    }
+
+    // 芀 + 火 → 刀（双方消耗）
+    if (pair === K("芀", "火")) {
+      const fire = pushed.type === "火" ? pushed : other;
+      const grass = pushed.type === "芀" ? pushed : other;
+      const pos = { x: fire.x, y: fire.y };
+      this.removeChar(fire);
+      this.removeChar(grass);
+      this.addChar("刀", pos.x, pos.y);
+      events.push({ type: "react", label: "芀 + 火 → 刀", removed: ["芀", "火"], created: ["刀"], at: pos });
       return true;
     }
 
@@ -823,12 +1043,69 @@ export class Game {
     return out;
   }
 
+  /** 锚点 (ax,ay) 放 size×size 的多格字是否整块为空 */
+  anchorFree(size, ax, ay) {
+    if (ax < 0 || ay < 0 || ax + size > this.cols || ay + size > this.rows) return false;
+    for (let dx = 0; dx < size; dx++) {
+      for (let dy = 0; dy < size; dy++) {
+        const x = ax + dx;
+        const y = ay + dy;
+        if (this.isWall(x, y) || this.isDoor(x, y)) return false;
+        if (this.charAt(x, y)) return false;
+        if (x === this.player.x && y === this.player.y) return false;
+      }
+    }
+    return true;
+  }
+
+  /** 在 (x,y) 附近为多格产物找一个能放下的左上角锚点 */
+  findEmptyAnchor(size, x, y) {
+    for (let r = 0; r <= 4; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const ax = x + dx;
+          const ay = y + dy;
+          if (this.anchorFree(size, ax, ay)) return { x: ax, y: ay };
+        }
+      }
+    }
+    return null;
+  }
+
   /* ---------------- 状态摘要（给 UI/测试用） ---------------- */
+
+  /** 检查多格字/字之间是否重叠，返回重叠的格子列表（测试用） */
+  levelOverlaps() {
+    const owner = new Map();
+    const overlaps = [];
+    for (const c of this.chars) {
+      for (const p of this.charCells(c)) {
+        const k = keyOf(p.x, p.y);
+        if (owner.has(k)) overlaps.push(k);
+        else owner.set(k, c);
+      }
+    }
+    return overlaps;
+  }
+
+  /** 检查字是否越界/压墙/压门（测试用） */
+  levelProblems() {
+    const problems = [];
+    for (const c of this.chars) {
+      for (const p of this.charCells(c)) {
+        if (!this.inBounds(p.x, p.y)) problems.push(`${c.type} 越界 @${p.x},${p.y}`);
+        else if (this.isWall(p.x, p.y)) problems.push(`${c.type} 压墙 @${p.x},${p.y}`);
+        else if (this.isDoor(p.x, p.y)) problems.push(`${c.type} 压门 @${p.x},${p.y}`);
+      }
+    }
+    return problems;
+  }
 
   get state() {
     return {
       player: { ...this.player },
-      chars: this.chars.map((c) => ({ ...c })),
+      chars: this.chars.map((c) => ({ ...c, size: c.size || charSize(c.type) })),
       steps: this.steps,
       status: this.status,
       winReason: this.winReason,

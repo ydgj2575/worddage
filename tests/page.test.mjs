@@ -327,6 +327,22 @@ elements.game.dispatch("pointermove", { clientX: pPaint.x + 160, clientY: pPaint
 check("左键松开后移动鼠标不再继续放字", editApi.getLevel().chars.length === countPaint);
 elements.game.dispatch("pointerup", { button: 0, clientX: pPaint.x + 160, clientY: pPaint.y, preventDefault() {}, pointerId: 4 });
 
+// 多格字：山/森/湖 3×3，林/池 2×2；编辑器要按整块校验
+check("色板包含 2026.11.20/21 新字", ["河", "朋", "芀", "鸟", "蛇", "湖"].every((t) => editApi.paletteTypes().includes(t)));
+editApi.selectChar("林");
+check("可以放置 2×2 的「林」", editApi.place(34, 34) === true && game.charAt(34, 34)?.type === "林");
+check("「林」覆盖 4 格", game.charAt(35, 35)?.type === "林" && game.charAt(34, 35)?.type === "林");
+editApi.selectChar("菜");
+check("多格字覆盖的格子不能放字", editApi.place(35, 35) === false);
+editApi.selectTool("erase");
+check("擦除多格字会整块删除",
+  editApi.place(35, 35) === true && game.charAt(34, 34)?.type !== "林" && game.charAt(35, 35)?.type !== "林");
+editApi.selectChar("森");
+check("可以放置 3×3 的「森」", editApi.place(44, 44) === true && game.charAt(46, 46)?.type === "森");
+check("3×3 的「森」覆盖 9 格", game.charAt(44, 44)?.type === "森" && game.charAt(44, 46)?.type === "森");
+editApi.selectTool("erase");
+editApi.place(44, 44);
+
 check("退出编辑模式", editApi.exit() === true && editApi.isActive() === false);
 check("退出后横幅恢复正常", elements.banner.textContent.includes("小地图"), elements.banner.textContent);
 

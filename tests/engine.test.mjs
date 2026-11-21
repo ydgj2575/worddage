@@ -56,11 +56,18 @@ console.log("\n[1] 初始状态 / 地图 / 新字");
   check("围墙 673 格（围墙内缩一圈）", g.walls.size === 673, g.walls.size);
   check("门在 (206,130)", g.isDoor(206, 130));
   check("玩家起点 (193,128)", g.player.x === 193 && g.player.y === 128);
-  check("初始 57 个字", g.chars.length === 57, g.chars.length);
+  check("初始 74 个字", g.chars.length === 74, g.chars.length);
   check("「肤」已被删除", !has(g, "肤"));
-  const newTypes = ["肉", "人", "果", "菜", "灶", "谷", "山", "风", "相", "贝", "勾", "采", "榕", "容", "熔", "木", "林", "森", "目", "蚏", "戈", "伐", "穴", "虫", "购", "猪"];
+  const newTypes = ["肉", "人", "果", "菜", "灶", "谷", "山", "风", "相", "贝", "勾", "采", "榕", "容", "熔", "木", "林", "森", "目", "蚏", "戈", "伐", "穴", "虫", "购", "猪",
+    "河", "池", "可", "客", "朋", "芀", "鸟", "蛇", "湖"];
   const missing = newTypes.filter((t) => !g.chars.some((c) => c.type === t));
   check("新字/旧杂字都已出现在关卡中", missing.length === 0, missing.join(","));
+  check("初始关卡没有多格字重叠", g.levelOverlaps().length === 0, g.levelOverlaps().join(";"));
+  check("初始关卡没有字压墙/压门", g.levelProblems().length === 0, g.levelProblems().slice(0, 3).join(";"));
+  const mountain = g.chars.find((c) => c.type === "山");
+  check("「山」占 3×3、覆盖 9 格", mountain && mountain.size === 3 && g.charCells(mountain).length === 9);
+  const pond = g.chars.find((c) => c.type === "池");
+  check("「池」占 2×2、覆盖 4 格", pond && pond.size === 2 && g.charCells(pond).length === 4);
   const stone = g.chars.find((c) => c.type === "石");
   const fire = g.chars.find((c) => c.type === "火");
   check("「火」位于「石」正下方", stone && fire && fire.x === stone.x && fire.y === stone.y + 1,
@@ -127,22 +134,24 @@ console.log("\n[4] 榕+刀 / 熔+刀 / 林+刀 / 森+刀");
   check("熔+刀 → 铁", has(g2, "铁") && !has(g2, "熔"));
 
   const g3 = new Game(
-    makeLevel({ cols: 9, rows: 4, player: { x: 1, y: 1 }, chars: [
-      { type: "林", x: 2, y: 1 },
-      { type: "刀", x: 3, y: 1 },
+    makeLevel({ cols: 10, rows: 6, player: { x: 6, y: 1 }, chars: [
+      { type: "林", x: 2, y: 1 }, // 2×2
+      { type: "刀", x: 5, y: 1 },
     ] })
   );
-  g3.move("right");
-  check("林+刀 → 木×2", countType(g3, "木") === 2 && !has(g3, "林"), countType(g3, "木"));
+  g3.move("left");
+  g3.move("left");
+  check("林+刀 → 木×2（刀保留）", countType(g3, "木") === 2 && !has(g3, "林") && g3.hasChar("刀"), countType(g3, "木"));
 
   const g4 = new Game(
-    makeLevel({ cols: 10, rows: 4, player: { x: 1, y: 1 }, chars: [
-      { type: "森", x: 2, y: 1 },
-      { type: "刀", x: 3, y: 1 },
+    makeLevel({ cols: 11, rows: 7, player: { x: 7, y: 1 }, chars: [
+      { type: "森", x: 2, y: 1 }, // 3×3
+      { type: "刀", x: 6, y: 1 },
     ] })
   );
-  g4.move("right");
-  check("森+刀 → 木×3", countType(g4, "木") === 3 && !has(g4, "森"), countType(g4, "木"));
+  g4.move("left");
+  g4.move("left");
+  check("森+刀 → 木×3（刀保留）", countType(g4, "木") === 3 && !has(g4, "森") && g4.hasChar("刀"), countType(g4, "木"));
 }
 
 console.log("\n[5] 戈+人 → 伐 / 贝+勾 → 购 / 破+山 → 石×3");
@@ -166,12 +175,12 @@ console.log("\n[5] 戈+人 → 伐 / 贝+勾 → 购 / 破+山 → 石×3");
   check("贝+勾 → 购", at(g2, 3, 1) === "购" && !has(g2, "贝") && !has(g2, "勾"));
 
   const g3 = new Game(
-    makeLevel({ cols: 9, rows: 6, player: { x: 1, y: 3 }, chars: [
-      { type: "破", x: 2, y: 3 },
-      { type: "山", x: 3, y: 3 },
+    makeLevel({ cols: 12, rows: 8, player: { x: 6, y: 3 }, chars: [
+      { type: "破", x: 5, y: 3 },
+      { type: "山", x: 2, y: 2 }, // 3×3
     ] })
   );
-  g3.move("right");
+  g3.move("left");
   const stones = countType(g3, "石");
   check("破+山 → 石×3", stones === 3 && !has(g3, "破") && !has(g3, "山"), stones);
 }
@@ -197,13 +206,16 @@ console.log("\n[6] 风+水 → 波 / 木+木 → 林 / 林+木 → 森 / 容+火
   check("木+木 → 林", has(g2, "林") && countType(g2, "木") === 0);
 
   const g3 = new Game(
-    makeLevel({ cols: 8, rows: 4, player: { x: 1, y: 1 }, chars: [
-      { type: "林", x: 2, y: 1 },
-      { type: "木", x: 3, y: 1 },
+    makeLevel({ cols: 14, rows: 12, player: { x: 6, y: 3 }, chars: [
+      { type: "林", x: 2, y: 2 }, // 2×2
+      { type: "木", x: 5, y: 3 },
     ] })
   );
-  g3.move("right");
-  check("林+木 → 森", has(g3, "森") && !has(g3, "林") && !has(g3, "木"));
+  g3.move("left");
+  g3.move("left");
+  const forestBig = g3.chars.find((c) => c.type === "森");
+  check("林+木 → 森（3×3）", forestBig && forestBig.size === 3 && !has(g3, "林") && !has(g3, "木"),
+    forestBig && `${forestBig.x},${forestBig.y} size=${forestBig.size}`);
 
   const g4 = new Game(
     makeLevel({ cols: 8, rows: 4, player: { x: 1, y: 1 }, chars: [
@@ -213,6 +225,64 @@ console.log("\n[6] 风+水 → 波 / 木+木 → 林 / 林+木 → 森 / 容+火
   );
   g4.move("right");
   check("容+火 → 熔", at(g4, 2, 1) === "熔" && !has(g4, "容") && !has(g4, "火"));
+}
+
+console.log("\n[6b] 2026.11.20 新规则：刀+河 / 朋+刀 / 芀+火");
+{
+  const g = new Game(
+    makeLevel({ cols: 10, rows: 4, player: { x: 1, y: 1 }, chars: [
+      { type: "刀", x: 2, y: 1 },
+      { type: "河", x: 3, y: 1 },
+    ] })
+  );
+  g.move("right");
+  check("刀+河 → 刀+可+水", at(g, 3, 1) === "可" && countType(g, "水") === 1 && g.hasChar("刀"),
+    g.chars.map((c) => c.type).join(""));
+
+  const g2 = new Game(
+    makeLevel({ cols: 10, rows: 4, player: { x: 1, y: 1 }, chars: [
+      { type: "朋", x: 2, y: 1 },
+      { type: "刀", x: 3, y: 1 },
+    ] })
+  );
+  g2.move("right");
+  check("朋+刀 → 刀+月+月", countType(g2, "月") === 2 && g2.hasChar("刀") && !has(g2, "朋"),
+    g2.chars.map((c) => c.type).join(""));
+
+  const g3 = new Game(
+    makeLevel({ cols: 10, rows: 4, player: { x: 1, y: 1 }, chars: [
+      { type: "芀", x: 2, y: 1 },
+      { type: "火", x: 3, y: 1 },
+    ] })
+  );
+  g3.move("right");
+  check("芀+火 → 刀", at(g3, 3, 1) === "刀" && !has(g3, "芀") && !has(g3, "火"),
+    g3.chars.map((c) => c.type).join(""));
+}
+
+console.log("\n[6c] 多格字：推动 3×3「山」/ 阻挡 / 2×2 产物");
+{
+  const g = new Game(
+    makeLevel({ cols: 20, rows: 20, player: { x: 4, y: 5 }, chars: [{ type: "山", x: 5, y: 5 }] })
+  );
+  const r = g.move("right");
+  const m = g.chars.find((c) => c.type === "山");
+  check("3×3 的「山」可以整块推动", r.moved === true && m.x === 6 && m.y === 5 && g.player.x === 5,
+    m && `${m.x},${m.y}`);
+  check("「山」原来的格子已空出", !g.charAt(5, 5) && g.charAt(5, 6) === null);
+  check("多格字整块随锚点移动", g.charAt(6, 5)?.type === "山" && g.charAt(8, 7)?.type === "山");
+
+  // 目标空间被占时多格字不能移动
+  const g2 = new Game(
+    makeLevel({ cols: 20, rows: 20, player: { x: 4, y: 5 }, chars: [
+      { type: "山", x: 5, y: 5 },
+      { type: "木", x: 9, y: 5 },
+    ] })
+  );
+  g2.move("right");
+  const r2 = g2.move("right");
+  check("多格字前方被其他字挡住时推不动", r2.moved === false && g2.chars.find((c) => c.type === "山").x === 6,
+    r2.blocked);
 }
 
 console.log("\n[7] 穴+谷 → 容（方向敏感）");
@@ -280,6 +350,51 @@ console.log("\n[8] 蚏：随机移动 / 被伐停止 / 停止后+刀");
   g3.move("left"); // 从右侧推刀撞停止的蚏
   check("蚏（停止）+刀 → 虫", has(g3, "虫"), g3.chars.map((c) => c.type).join(""));
   check("蚏（停止）+刀 → 月", has(g3, "月"));
+}
+
+console.log("\n[8b] 2026.11.21 新字：鸟（墙内随机移动）/ 蛇（整组移动）");
+{
+  const birdLevel = makeLevel({ cols: 20, rows: 20, player: { x: 2, y: 2 }, chars: [{ type: "鸟", x: 10, y: 10 }] });
+  const g = new Game(birdLevel);
+  const birdPositions = new Set();
+  let birdInside = true;
+  for (let i = 0; i < 8; i++) {
+    g.move(i % 2 ? "up" : "down");
+    const bird = g.chars.find((c) => c.type === "鸟");
+    birdPositions.add(`${bird.x},${bird.y}`);
+    if (!g.insideRect(bird.x, bird.y)) birdInside = false;
+  }
+  check("鸟会在墙内随机移动", birdPositions.size >= 2, [...birdPositions].join(" "));
+  check("鸟始终在围墙内", birdInside);
+
+  const snakeLevel = makeLevel({
+    cols: 20, rows: 20, seed: 4242,
+    player: { x: 2, y: 2 },
+    chars: [
+      { type: "蛇", x: 10, y: 10 },
+      { type: "蛇", x: 10, y: 11 },
+      { type: "蛇", x: 10, y: 12 },
+    ],
+  });
+  const g2 = new Game(snakeLevel);
+  let groupOk = true;
+  let movedOk = false;
+  let prev = null;
+  for (let i = 0; i < 8; i++) {
+    g2.move(i % 2 ? "up" : "down");
+    const snakes = g2.chars.filter((c) => c.type === "蛇").sort((a, b) => a.id - b.id);
+    if (snakes.length !== 3) groupOk = false;
+    // 三条蛇保持竖直相邻（整组一起移动）
+    if (!(snakes[0].x === snakes[1].x && snakes[1].x === snakes[2].x
+      && Math.abs(snakes[0].y - snakes[1].y) === 1 && Math.abs(snakes[1].y - snakes[2].y) === 1)) {
+      groupOk = false;
+    }
+    const now = snakes.map((s) => `${s.x},${s.y}`).join(";");
+    if (prev && now !== prev) movedOk = true;
+    prev = now;
+  }
+  check("蛇整组保持紧密相邻", groupOk);
+  check("蛇整组会一起移动", movedOk);
 }
 
 console.log("\n[9] 风把火推三格");
@@ -388,7 +503,7 @@ console.log("\n[13] 撤销 / 重置");
   g.reset();
   check("重置回到初始状态", g.player.x === 193 && g.player.y === 128 && g.steps === 0);
   check("重置后蚏有诞生点信息", g.chars.some((c) => c.type === "蚏" && c.spawnX !== undefined));
-  check("关卡初始数据完整", DEFAULT_LEVEL.chars.length === 57);
+  check("关卡初始数据完整", DEFAULT_LEVEL.chars.length === 74);
 }
 
 console.log("\n[14] 摄像机 / 大地图视口");

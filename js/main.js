@@ -2,7 +2,7 @@
  * 文字游戏 · 入口与交互层
  * 负责：画布尺寸/DPR、键盘与滑动输入、HUD 与弹窗、音效、反应特效调度。
  */
-import { Game, RULE_HINTS, TYPE_INFO, LEVELS } from "./engine.js";
+import { Game, RULE_HINTS, TYPE_INFO, LEVELS, charSize } from "./engine.js";
 import { computeLayout, computeCamera, drawScene } from "./art.js";
 
 /* ================================================================== */
@@ -506,7 +506,8 @@ function buildPalette() {
     btn.type = "button";
     if (btn.className !== undefined) btn.className = "btn tiny palette-item";
     btn.textContent = type;
-    btn.title = type === "墙" ? "放置一格墙（额外墙，可擦除）" : `放置「${type}」`;
+    const sz = charSize(type);
+    btn.title = type === "墙" ? "放置一格墙（额外墙，可擦除）" : sz > 1 ? `放置「${type}」（占 ${sz}×${sz}，需整块空地）` : `放置「${type}」`;
     if (btn.dataset) btn.dataset.type = type;
     if (editTool.kind === "char" && editTool.type === type && btn.classList) btn.classList.add("active");
     if (els.editPalette.appendChild) els.editPalette.appendChild(btn);
@@ -524,7 +525,8 @@ function handlePaletteClick(e) {
   const type = btn.dataset.type;
   editTool = { kind: "char", type };
   buildPalette();
-  editStatus(`当前工具：${type === "墙" ? "放置墙" : `放置「${type}」`}`);
+  const sz = charSize(type);
+  editStatus(`当前工具：${type === "墙" ? "放置墙" : `放置「${type}」${sz > 1 ? `（占 ${sz}×${sz}）` : ""}`}`);
   if (e.stopPropagation) e.stopPropagation();
 }
 
@@ -614,6 +616,7 @@ function editPlaceAt(x, y) {
   const extraWall = isExtraWall(editLevel, x, y);
   const isWallCell = perimeterWall || extraWall;
   const isDoorCell = x === editLevel.door.x && y === editLevel.door.y;
+  const covering = charAtLevel(editLevel, x, y);
 
   if (editTool.kind === "door") {
     if (!onBorder) {
@@ -633,19 +636,24 @@ function editPlaceAt(x, y) {
       editStatus("玩家起点不能放在门上");
       return false;
     }
+    if (covering) {
+      editStatus("玩家起点不能放在字上，先用「擦除」清掉");
+      return false;
+    }
     editLevel.player = { x, y };
-    removeCharAt(editLevel, x, y);
     editStatus(`玩家起点 → (${x},${y})`);
   } else if (editTool.kind === "erase") {
-    if (extraWall) {
+    if (covering) {
+      removeCharAt(editLevel, x, y);
+      editStatus(`已删除 (${x},${y}) 的「${covering.type}」${(covering.size || 1) > 1 ? "（整块）" : ""}`);
+    } else if (extraWall) {
       setExtraWall(editLevel, x, y, false);
       editStatus(`已删除 (${x},${y}) 的额外墙`);
     } else if (perimeterWall) {
       editStatus("围墙边界不能擦除（由 wallRect 决定）");
       return false;
     } else {
-      const removed = removeCharAt(editLevel, x, y);
-      editStatus(removed ? `已删除 (${x},${y}) 的「${removed.type}」` : `(${x},${y}) 没有文字`);
+      editStatus(`(${x},${y}) 没有文字`);
     }
   } else if (editTool.kind === "char" && editTool.type === "墙") {
     if (perimeterWall) {
@@ -656,31 +664,81 @@ function editPlaceAt(x, y) {
       editStatus("门格不能放墙");
       return false;
     }
-    removeCharAt(editLevel, x, y);
+    if (covering) {
+      editStatus("该格有字，先用「擦除」清掉");
+      return false;
+    }
     setExtraWall(editLevel, x, y, true);
     editStatus(`墙 → (${x},${y})（额外墙，可用「擦除」去掉）`);
   } else {
-    if (isWallCell) {
-      editStatus(extraWall ? "该格是额外墙，请先用「擦除」去掉墙" : "墙格不能放字（墙由 wallRect 决定）");
-      return false;
+    const size = charSize(editTool.type);
+    if (size > 1) {
+      // 多格字：必须整块都空
+      const reason = multiPlaceReason(editLevel, x, y, size);
+      if (reason) {
+        editStatus(reason);
+        return false;
+      }
+      editLevel.chars.push({ type: editTool.type, x, y });
+      editStatus(`「${editTool.type}」占 ${size}×${size} → 左上角 (${x},${y})`);
+    } else {
+      if (isWallCell) {
+        editStatus(extraWall ? "该格是额外墙，请先用「擦除」去掉墙" : "墙格不能放字（墙由 wallRect 决定）");
+        return false;
+      }
+      if (isDoorCell) {
+        editStatus("门格不能放字");
+        return false;
+      }
+      if (covering && (covering.size || charSize(covering.type)) > 1) {
+        editStatus("该格属于多格字，请先用「擦除」整块删除");
+        return false;
+      }
+      removeCharAt(editLevel, x, y);
+      editLevel.chars.push({ type: editTool.type, x, y });
+      editStatus(`「${editTool.type}」→ (${x},${y})`);
     }
-    if (isDoorCell) {
-      editStatus("门格不能放字");
-      return false;
-    }
-    removeCharAt(editLevel, x, y);
-    editLevel.chars.push({ type: editTool.type, x, y });
-    editStatus(`「${editTool.type}」→ (${x},${y})`);
   }
   applyEditPreview();
   return true;
 }
 
+/** 多格字放置检查：返回不能放的原因（null 表示可以放） */
+function multiPlaceReason(level, x, y, size) {
+  if (x < 0 || y < 0 || x + size > level.cols || y + size > level.rows) return "超出地图范围";
+  const wr = level.wallRect;
+  for (let dx = 0; dx < size; dx++) {
+    for (let dy = 0; dy < size; dy++) {
+      const cx = x + dx;
+      const cy = y + dy;
+      const onBorder = cx === wr.x1 || cx === wr.x2 || cy === wr.y1 || cy === wr.y2;
+      const isDoor = cx === level.door.x && cy === level.door.y;
+      if (onBorder && !isDoor) return "多格字不能压在围墙边界上";
+      if (isDoor) return "多格字不能压在门上";
+      if (isExtraWall(level, cx, cy)) return "多格字不能压在额外墙上";
+      if (charAtLevel(level, cx, cy)) return "这里已经有别的字了（多格字需要整块空地）";
+      if (cx === level.player.x && cy === level.player.y) return "多格字不能压在玩家起点上";
+    }
+  }
+  return null;
+}
+
+/** 该格被哪个字覆盖（支持多格字） */
+function charAtLevel(level, x, y) {
+  for (const c of level.chars) {
+    const s = c.size || charSize(c.type);
+    if (x >= c.x && x < c.x + s && y >= c.y && y < c.y + s) return c;
+  }
+  return null;
+}
+
 function removeCharAt(level, x, y) {
-  const i = level.chars.findIndex((c) => c.x === x && c.y === y);
+  const c = charAtLevel(level, x, y);
+  if (!c) return null;
+  const i = level.chars.indexOf(c);
   if (i < 0) return null;
-  const [removed] = level.chars.splice(i, 1);
-  return removed;
+  level.chars.splice(i, 1);
+  return c;
 }
 
 function saveEditLevel() {
@@ -1131,7 +1189,8 @@ function buildRulesPanel() {
       <li>用「<b>破</b>」撞墙 或「<b>火</b>」撞「<b>蔷</b>」，破开围墙后走到墙外。</li>
     </ol>
     <p class="rules-tip">操作：WASD / 方向键 / 在画布上滑动；按住方向键（或手机方向键）可连续移动；Z 撤销；R 重开。</p>
-    <p class="rules-tip">新机制：蚏会随机移动（撞墙返回，被「伐」撞到后停下）；靠近「目」才显示小地图；「风」可以把「火」推动三格。</p>
+    <p class="rules-tip">新机制：蚏会随机移动（撞墙返回，被「伐」撞到后停下）；靠近「目」才显示小地图；「风」可以把「火」推动三格；「鸟」在墙内自由移动；相邻的「蛇」会整组一起移动。</p>
+    <p class="rules-tip">多格字：「山」「森」「湖」占 3×3 格，「林」「池」占 2×2 格，推它们要留出整块空间；其余字占 1 格。</p>
   `;
   const close = $("rules-close");
   if (close) close.addEventListener("click", () => els.rules.classList.add("hidden"));

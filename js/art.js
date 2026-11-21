@@ -3,7 +3,7 @@
  * 世界是 54×35 格的大地图，屏幕只显示约 17×11 格；
  * 摄像机跟随「我」移动，右上角有小地图。
  */
-import { TYPE_INFO } from "./engine.js";
+import { TYPE_INFO, charSize } from "./engine.js";
 
 const PAPER = "#f4ead6";
 const INK = "#2b3540";
@@ -328,11 +328,13 @@ function drawMinimap(ctx, game, layout, camera) {
     const [x, y] = k.split(",").map(Number);
     ctx.fillRect(ox + x * s, oy + y * s, Math.max(1, s), Math.max(1, s));
   }
-  // 字
+  // 字（多格字按 size×size 绘制）
   for (const c of game.chars) {
     const info = TYPE_INFO[c.type] || { color: INK };
+    const sz = c.size || charSize(c.type);
     ctx.fillStyle = info.color;
-    ctx.fillRect(ox + c.x * s, oy + c.y * s, Math.max(1.2, s), Math.max(1.2, s));
+    const mm = Math.max(1.2, s * sz);
+    ctx.fillRect(ox + c.x * s, oy + c.y * s, mm, mm);
   }
   // 门
   ctx.fillStyle = "#e6c868";
@@ -392,9 +394,10 @@ export function drawScene(ctx, game, opts) {
   }
 
   for (const c of game.chars) {
-    if (c.x < x0 - 1 || c.x > x1 + 1 || c.y < y0 - 1 || c.y > y1 + 1) continue;
-    const p = worldToScreen(layout, camera, c.x + 0.5, c.y + 0.5);
-    charTile(ctx, p.x, p.y, cell, c.type, time, { seed: c.id });
+    const size = c.size || charSize(c.type);
+    if (c.x + size < x0 - 1 || c.x > x1 + 1 || c.y + size < y0 - 1 || c.y > y1 + 1) continue;
+    const p = worldToScreen(layout, camera, c.x + size / 2, c.y + size / 2);
+    charTile(ctx, p.x, p.y, cell * size, c.type, time, { seed: c.id });
   }
 
   {
