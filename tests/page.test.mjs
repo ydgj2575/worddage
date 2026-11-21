@@ -346,5 +346,62 @@ editApi.place(44, 44);
 check("退出编辑模式", editApi.exit() === true && editApi.isActive() === false);
 check("退出后横幅恢复正常", elements.banner.textContent.includes("小地图"), elements.banner.textContent);
 
+// 页面层验证：多格字（3×3/2×2）能被玩家推动
+{
+  const mountain = game.chars.find((c) => c.type === "山");
+  game.player = { x: mountain.x - 1, y: mountain.y };
+  const beforeX = mountain.x;
+  doMove("right");
+  const after = game.chars.find((c) => c.type === "山");
+  check("3×3「山」可以被玩家推动", after.x === beforeX + 1, `${beforeX} -> ${after.x}`);
+  const forest = game.chars.find((c) => c.type === "森");
+  game.player = { x: forest.x, y: forest.y - 1 };
+  const beforeY = forest.y;
+  doMove("down");
+  check("3×3「森」可以被玩家推动", game.chars.find((c) => c.type === "森").y === beforeY + 1);
+  const forest2 = game.chars.find((c) => c.type === "林");
+  game.player = { x: forest2.x - 1, y: forest2.y };
+  const beforeX2 = forest2.x;
+  doMove("right");
+  check("2×2「林」可以被玩家推动", game.chars.find((c) => c.type === "林").x === beforeX2 + 1);
+}
+
+// 编辑保存后的多格字仍然可以推动
+editApi.enter();
+editApi.selectChar("山");
+editApi.place(70, 70);
+check("编辑模式下可以放下保存用的「山」", editApi.getLevel().chars.some((c) => c.type === "山" && c.x === 70 && c.y === 70));
+editApi.save();
+editApi.exit();
+const savedMountain = game.chars.find((c) => c.type === "山" && c.x === 70 && c.y === 70);
+check("保存布局后多格字仍在", !!savedMountain);
+game.player = { x: 69, y: 70 };
+doMove("right");
+check("保存布局后的 3×3「山」仍可被推动",
+  game.chars.find((c) => c.type === "山" && c.x === 71 && c.y === 70) !== undefined);
+// 清理自定义布局
+editApi.enter();
+editApi.reset();
+editApi.exit();
+
+// 旧存档/手工 JSON 里多格字重叠时，导入/启动会被自动清理（避免斜向重叠导致推不动）
+editApi.enter();
+const baseLv = editApi.getLevel();
+editApi.importJSON(JSON.stringify({
+  ...baseLv,
+  chars: [
+    { type: "山", x: 80, y: 80 },
+    { type: "木", x: 81, y: 81 }, // 落在 3×3 山内部，应被清理
+    { type: "菜", x: 90, y: 90 },
+  ],
+}));
+const cleaned = editApi.getLevel();
+check("导入重叠布局会自动清理多格字重叠",
+  !cleaned.chars.some((c) => c.type === "木" && c.x === 81 && c.y === 81)
+  && cleaned.chars.some((c) => c.type === "山" && c.x === 80 && c.y === 80)
+  && cleaned.chars.some((c) => c.type === "菜" && c.x === 90 && c.y === 90));
+editApi.reset();
+editApi.exit();
+
 console.log(`\n结果：通过 ${pass} 项，失败 ${fail} 项\n`);
 if (fail > 0) process.exit(1);

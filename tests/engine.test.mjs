@@ -377,24 +377,30 @@ console.log("\n[8b] 2026.11.21 新字：鸟（墙内随机移动）/ 蛇（整�
     ],
   });
   const g2 = new Game(snakeLevel);
-  let groupOk = true;
+  let chainOk = true;   // 后一条蛇走到前一条蛇的旧位置
+  let adjacentOk = true; // 整组始终紧挨
   let movedOk = false;
-  let prev = null;
+  let prev = g2.chars.filter((c) => c.type === "蛇").sort((a, b) => a.id - b.id).map((s) => ({ x: s.x, y: s.y }));
   for (let i = 0; i < 8; i++) {
     g2.move(i % 2 ? "up" : "down");
     const snakes = g2.chars.filter((c) => c.type === "蛇").sort((a, b) => a.id - b.id);
-    if (snakes.length !== 3) groupOk = false;
-    // 三条蛇保持竖直相邻（整组一起移动）
-    if (!(snakes[0].x === snakes[1].x && snakes[1].x === snakes[2].x
-      && Math.abs(snakes[0].y - snakes[1].y) === 1 && Math.abs(snakes[1].y - snakes[2].y) === 1)) {
-      groupOk = false;
+    if (snakes.length !== 3) chainOk = false;
+    // 第一个蛇随机移动；第二/第三分别移动到前一条蛇的旧位置
+    if (snakes[1].x !== prev[0].x || snakes[1].y !== prev[0].y) chainOk = false;
+    if (snakes[2].x !== prev[1].x || snakes[2].y !== prev[1].y) chainOk = false;
+    // 相邻性：头-第二条、第二条-第三条都紧挨
+    for (let j = 1; j < 3; j++) {
+      if (Math.abs(snakes[j].x - snakes[j - 1].x) + Math.abs(snakes[j].y - snakes[j - 1].y) !== 1) {
+        adjacentOk = false;
+      }
     }
     const now = snakes.map((s) => `${s.x},${s.y}`).join(";");
-    if (prev && now !== prev) movedOk = true;
-    prev = now;
+    if (prev && now !== prev.map((p) => `${p.x},${p.y}`).join(";")) movedOk = true;
+    prev = snakes.map((s) => ({ x: s.x, y: s.y }));
   }
-  check("蛇整组保持紧密相邻", groupOk);
-  check("蛇整组会一起移动", movedOk);
+  check("蛇按「后一条走到前一条旧位置」的链式规则移动", chainOk);
+  check("蛇整组保持紧密相邻", adjacentOk);
+  check("蛇的头会随机移动", movedOk);
 }
 
 console.log("\n[9] 风把火推三格");

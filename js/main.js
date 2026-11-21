@@ -430,6 +430,38 @@ function cloneLevel(level) {
 function normalizeLevel(lv, base) {
   const chars = Array.isArray(lv.chars) ? lv.chars : [];
   const int = (v, fallback) => (Number.isFinite(v) ? Math.floor(v) : fallback);
+  const door = lv.door
+    ? { x: int(lv.door.x, base.door.x), y: int(lv.door.y, base.door.y) }
+    : { ...base.door };
+  const player = lv.player
+    ? { x: int(lv.player.x, base.player.x), y: int(lv.player.y, base.player.y) }
+    : { ...base.player };
+  const rawChars = chars
+    .filter((c) => c && typeof c.type === "string" && Number.isFinite(c.x) && Number.isFinite(c.y))
+    .map((c) => ({ type: c.type, x: Math.floor(c.x), y: Math.floor(c.y) }));
+  // 清理旧版本/手工 JSON 里可能存在的多格字重叠：保留先出现且放得下的字
+  const occupied = new Set();
+  const safeChars = [];
+  for (const c of rawChars) {
+    const size = charSize(c.type);
+    let ok = true;
+    if (c.x < 0 || c.y < 0 || c.x + size > base.cols || c.y + size > base.rows) ok = false;
+    if (ok) {
+      for (let dx = 0; dx < size && ok; dx++) {
+        for (let dy = 0; dy < size && ok; dy++) {
+          const x = c.x + dx;
+          const y = c.y + dy;
+          const k = `${x},${y}`;
+          if (occupied.has(k) || (x === player.x && y === player.y) || (x === door.x && y === door.y)) ok = false;
+        }
+      }
+    }
+    if (!ok) continue;
+    for (let dx = 0; dx < size; dx++) {
+      for (let dy = 0; dy < size; dy++) occupied.add(`${c.x + dx},${c.y + dy}`);
+    }
+    safeChars.push(c);
+  }
   return {
     ...base,
     id: base.id,
@@ -438,15 +470,9 @@ function normalizeLevel(lv, base) {
     rows: base.rows,
     seed: Number.isFinite(lv.seed) ? lv.seed : base.seed,
     wallRect: { ...base.wallRect, ...(lv.wallRect || {}) },
-    door: lv.door
-      ? { x: int(lv.door.x, base.door.x), y: int(lv.door.y, base.door.y) }
-      : { ...base.door },
-    player: lv.player
-      ? { x: int(lv.player.x, base.player.x), y: int(lv.player.y, base.player.y) }
-      : { ...base.player },
-    chars: chars
-      .filter((c) => c && typeof c.type === "string" && Number.isFinite(c.x) && Number.isFinite(c.y))
-      .map((c) => ({ type: c.type, x: Math.floor(c.x), y: Math.floor(c.y) })),
+    door,
+    player,
+    chars: safeChars,
     walls: (Array.isArray(lv.walls) ? lv.walls : [])
       .filter((w) => w && Number.isFinite(w.x) && Number.isFinite(w.y))
       .map((w) => ({ x: Math.floor(w.x), y: Math.floor(w.y) })),
@@ -580,7 +606,7 @@ function enterEditMode() {
   if (canvas && canvas.style) canvas.style.cursor = "crosshair";
   editButtonState();
   buildPalette();
-  editStatus("左键点/按住拖动连续放字或墙；WASD 移动地图；「保存布局」后刷新仍保留");
+  editStatus("左键点/按住拖动连续放字或墙；WASD 移动地图；退出编辑后才能推动字；「保存布局」后刷新仍保留");
   syncHud();
   return true;
 }
@@ -1189,7 +1215,7 @@ function buildRulesPanel() {
       <li>用「<b>破</b>」撞墙 或「<b>火</b>」撞「<b>蔷</b>」，破开围墙后走到墙外。</li>
     </ol>
     <p class="rules-tip">操作：WASD / 方向键 / 在画布上滑动；按住方向键（或手机方向键）可连续移动；Z 撤销；R 重开。</p>
-    <p class="rules-tip">新机制：蚏会随机移动（撞墙返回，被「伐」撞到后停下）；靠近「目」才显示小地图；「风」可以把「火」推动三格；「鸟」在墙内自由移动；相邻的「蛇」会整组一起移动。</p>
+    <p class="rules-tip">新机制：蚏会随机移动（撞墙返回，被「伐」撞到后停下）；靠近「目」才显示小地图；「风」可以把「火」推动三格；「鸟」在墙内自由移动；相邻的「蛇」会像一列小火车：第一条随机走，后面的依次走到前一条的旧位置。</p>
     <p class="rules-tip">多格字：「山」「森」「湖」占 3×3 格，「林」「池」占 2×2 格，推它们要留出整块空间；其余字占 1 格。</p>
   `;
   const close = $("rules-close");

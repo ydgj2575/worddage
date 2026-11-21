@@ -517,8 +517,10 @@ export class Game {
   }
 
   /**
-   * 蛇：4 邻接紧挨着的「蛇」视为一个整体，
-   * 每次移动时整组跟随该组第一个蛇（id 最小）一起走。
+   * 蛇（2026.11.21 新规则）：
+   * 4 邻接紧挨着的「蛇」视为一个整体；
+   * 第一个蛇随机移动一格，第二个蛇移动到第一个蛇原来的位置，
+   * 第三个蛇移动到第二个蛇原来的位置，依次类推（像一列火车跟随）。
    */
   updateSnakes(events) {
     const snakes = this.chars.filter((c) => c.type === "蛇");
@@ -546,47 +548,87 @@ export class Game {
           }
         }
       }
-      group.sort((a, b) => a.id - b.id);
-      const head = group[0];
-      const before = group.map((s) => ({ x: s.x, y: s.y }));
-      let moved = this.moveSnakeGroup(group, head.wanderDir);
-      if (!moved) {
-        head.wanderDir = oppositeDir(head.wanderDir);
-        moved = this.moveSnakeGroup(group, head.wanderDir);
+      const order = this.orderSnakeChain(group);
+      if (order.length < 2) {
+        // 单条蛇：随机移动
+        const head = order[0];
+        const target = this.pickSnakeTarget(head, order);
+        if (target) {
+          events.push({ type: "wander", char: "蛇", count: 1, from: { x: head.x, y: head.y }, to: target });
+          head.x = target.x;
+          head.y = target.y;
+        }
+        continue;
       }
-      if (moved) {
-        events.push({
-          type: "wander",
-          char: "蛇",
-          count: group.length,
-          from: before[0],
-          to: { x: head.x, y: head.y },
-        });
+      const head = order[0];
+      const oldPositions = order.map((s) => ({ x: s.x, y: s.y }));
+      const target = this.pickSnakeTarget(head, order);
+      if (!target) continue;
+      // 从尾到头依次后移，最后动头
+      for (let i = order.length - 1; i >= 1; i--) {
+        order[i].x = oldPositions[i - 1].x;
+        order[i].y = oldPositions[i - 1].y;
       }
+      head.x = target.x;
+      head.y = target.y;
+      events.push({
+        type: "wander",
+        char: "蛇",
+        count: order.length,
+        from: oldPositions[0],
+        to: { x: head.x, y: head.y },
+        followed: order.length - 1,
+      });
     }
   }
 
-  moveSnakeGroup(group, dirName) {
-    const dir = DIRS[dirName];
-    if (!dir) return false;
-    const head = group[0];
-    const groupIds = new Set(group.map((s) => s.id));
-    for (const s of group) {
-      const tx = s.x + dir.dx;
-      const ty = s.y + dir.dy;
-      if (!this.inBounds(tx, ty)) return false;
-      // 蛇一般在「穴」附近活动，限制在诞生点附近
-      if (Math.max(Math.abs(tx - head.spawnX), Math.abs(ty - head.spawnY)) > 8) return false;
-      if (this.isWall(tx, ty) || this.isDoor(tx, ty)) return false;
-      if (tx === this.player.x && ty === this.player.y) return false;
+  /** 把一组蛇按「头 → 尾」排成链（从第一个蛇开始，每次取相邻的未访问蛇） */
+  orderSnakeChain(group) {
+    const remaining = new Map(group.map((s) => [s.id, s]));
+    const firstId = Math.min(...group.map((s) => s.id));
+    let current = remaining.get(firstId);
+    remaining.delete(firstId);
+    const order = [current];
+    while (remaining.size) {
+      let next = null;
+      for (const s of remaining.values()) {
+        const adjacent = Math.abs(s.x - current.x) + Math.abs(s.y - current.y) === 1;
+        if (adjacent && (!next || s.id < next.id)) next = s;
+      }
+      if (!next) break;
+      remaining.delete(next.id);
+      order.push(next);
+      current = next;
+    }
+    // 分叉等特殊情况：剩下的按 id 追加（尽量保持整组一起移动）
+    const rest = [...remaining.values()].sort((a, b) => a.id - b.id);
+    return order.concat(rest);
+  }
+
+  /** 蛇头随机选一个可走的目标格（空地、不是蛇组自身、不越墙/半径） */
+  pickSnakeTarget(head, order) {
+    const dirs = ["up", "down", "left", "right"];
+    // 用可复现随机数打乱方向顺序
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rng() * (i + 1));
+      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+    }
+    const groupIds = new Set(order.map((s) => s.id));
+    for (const dirName of dirs) {
+      const dir = DIRS[dirName];
+      const tx = head.x + dir.dx;
+      const ty = head.y + dir.dy;
+      if (!this.inBounds(tx, ty)) continue;
+      if (Math.max(Math.abs(tx - head.spawnX), Math.abs(ty - head.spawnY)) > 10) continue;
+      if (this.isWall(tx, ty) || this.isDoor(tx, ty)) continue;
+      if (tx === this.player.x && ty === this.player.y) continue;
       const hit = this.charAt(tx, ty);
-      if (hit && !groupIds.has(hit.id)) return false;
+      if (hit && !groupIds.has(hit.id)) continue;
+      // 目标格必须为空（包括蛇组自己的旧位置，避免整组重叠）
+      if (hit) continue;
+      return { x: tx, y: ty };
     }
-    for (const s of group) {
-      s.x += dir.dx;
-      s.y += dir.dy;
-    }
-    return true;
+    return null;
   }
 
   /* ---------------- 反应规则 ---------------- */
