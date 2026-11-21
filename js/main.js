@@ -66,11 +66,12 @@ let audioCtx = null;
 let editMode = false;
 let editLevel = null;
 let editTool = { kind: "char", type: "刀" };
-let editCamera = null;      // 编辑模式下的自由摄像机（右键拖动画布）
+let editCamera = null;      // 编辑模式下的自由摄像机（用 WASD 移动）
 let editPainting = false;   // 左键按住连续放字
 let editLastCell = null;
-let editPanning = false;    // 右键按住拖动地图
-let editLastPan = null;
+const editPanDirs = [];     // 编辑模式下按住 WASD 的方向（可同时按多个）
+const EDIT_PAN_KEYS = { w: "up", W: "up", a: "left", A: "left", s: "down", S: "down", d: "right", D: "right" };
+const EDIT_PAN_SPEED = 12;  // 编辑模式 WASD 平移速度（格/秒）
 const CUSTOM_LEVELS_KEY = "worddage:levels";
 const ORIGINAL_LEVELS = LEVELS.map((l) => JSON.parse(JSON.stringify(l)));
 
@@ -570,15 +571,14 @@ function enterEditMode() {
   editCamera = camera ? { x: camera.x, y: camera.y } : layout ? computeCamera(game, layout) : null;
   editPainting = false;
   editLastCell = null;
-  editPanning = false;
-  editLastPan = null;
+  editPanDirs.length = 0;
   editMode = true;
   hideWin();
   if (els.editor) els.editor.classList.remove("hidden");
   if (canvas && canvas.style) canvas.style.cursor = "crosshair";
   editButtonState();
   buildPalette();
-  editStatus("左键点/按住拖动连续放字或墙；右键按住拖动平移地图；「保存布局」后刷新仍保留");
+  editStatus("左键点/按住拖动连续放字或墙；WASD 移动地图；「保存布局」后刷新仍保留");
   syncHud();
   return true;
 }
@@ -589,8 +589,7 @@ function exitEditMode() {
   editLevel = null;
   editPainting = false;
   editLastCell = null;
-  editPanning = false;
-  editLastPan = null;
+  editPanDirs.length = 0;
   editCamera = null;
   if (els.editor) els.editor.classList.add("hidden");
   if (canvas && canvas.style) canvas.style.cursor = "grab";
@@ -782,24 +781,14 @@ function editCellFromEvent(e) {
   return { x: Math.floor((sx + cam.x) / layout.cell), y: Math.floor((sy + cam.y) / layout.cell) };
 }
 
-/** 左键按下：开始连续放字；右键按下：开始拖动地图 */
+/** 左键按下：开始连续放字（右键不再拖动地图，改用 WASD 移动地图） */
 function handleEditPointerDown(e) {
   if (!layout || !editLevel) return;
   const button = e.button === undefined ? 0 : e.button;
   if (button === 2) {
-    editPanning = true;
-    editPainting = false;
-    editLastPan = { x: e.clientX, y: e.clientY };
-    if (canvas.setPointerCapture && e.pointerId !== undefined) {
-      try {
-        canvas.setPointerCapture(e.pointerId);
-      } catch {
-        /* 忽略 */
-      }
-    }
+    // 右键只屏蔽菜单，不再拖动地图
     if (e.preventDefault) e.preventDefault();
-    editStatus("右键拖动平移地图中…松开结束");
-    if (canvas && canvas.style) canvas.style.cursor = "grabbing";
+    editStatus("编辑模式下请用 W / A / S / D 移动地图");
     return;
   }
   if (button !== 0) return;
@@ -823,56 +812,29 @@ function handleEditPointerDown(e) {
   if (e.preventDefault) e.preventDefault();
 }
 
-/** 按住左键拖过格子 → 沿途连续放字；按住右键移动 → 平移地图 */
+/** 按住左键拖过格子 → 沿途连续放字 */
 function handleEditPointerMove(e) {
   if (!editMode) return;
-  // 防御：某些浏览器右键松开时可能不派发 pointerup（或被右键菜单吞掉），
-  // 这里根据 buttons 位掩码兜底结束拖动/绘制，避免“松开后地图还跟着鼠标动”。
+  if (!editPainting) return;
+  // 防御：某些浏览器左键松开时可能不派发 pointerup，用 buttons 位掩码兜底
   const buttons = e && typeof e.buttons === "number" ? e.buttons : null;
-  if (editPanning) {
-    if (buttons !== null && (buttons & 2) === 0) {
-      handleEditPointerUp(e);
-      return;
-    }
-    if (editLastPan) {
-      const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
-      const kx = width / (rect && rect.width ? rect.width : width);
-      const ky = height / (rect && rect.height ? rect.height : height);
-      const dx = (e.clientX - editLastPan.x) * kx;
-      const dy = (e.clientY - editLastPan.y) * ky;
-      editLastPan = { x: e.clientX, y: e.clientY };
-      if (!editCamera) editCamera = camera ? { ...camera } : null;
-      if (editCamera) {
-        editCamera.x -= dx;
-        editCamera.y -= dy;
-        clampEditCamera();
-        camera = { ...editCamera };
-      }
-      if (e.preventDefault) e.preventDefault();
-      return;
-    }
+  if (buttons !== null && (buttons & 1) === 0) {
+    handleEditPointerUp(e);
+    return;
   }
-  if (editPainting) {
-    if (buttons !== null && (buttons & 1) === 0) {
-      handleEditPointerUp(e);
-      return;
-    }
-    const cell = editCellFromEvent(e);
-    if (!cell) return;
-    if (editLastCell && (cell.x !== editLastCell.x || cell.y !== editLastCell.y)) {
-      paintLine(editLastCell, cell);
-    }
-    editLastCell = cell;
-    if (e.preventDefault) e.preventDefault();
+  const cell = editCellFromEvent(e);
+  if (!cell) return;
+  if (editLastCell && (cell.x !== editLastCell.x || cell.y !== editLastCell.y)) {
+    paintLine(editLastCell, cell);
   }
+  editLastCell = cell;
+  if (e.preventDefault) e.preventDefault();
 }
 
 function handleEditPointerUp(e) {
   if (!editMode) return;
   editPainting = false;
   editLastCell = null;
-  editPanning = false;
-  editLastPan = null;
   if (canvas && canvas.style) canvas.style.cursor = "crosshair";
   if (canvas.releasePointerCapture && e && e.pointerId !== undefined) {
     try {
@@ -881,6 +843,37 @@ function handleEditPointerUp(e) {
       /* 忽略 */
     }
   }
+}
+
+/* ---- 编辑模式：WASD 移动地图（镜头） ---- */
+function panEditCamera(dirName, amount) {
+  if (!editCamera) editCamera = camera ? { ...camera } : null;
+  if (!editCamera) return;
+  if (dirName === "up") editCamera.y -= amount;
+  else if (dirName === "down") editCamera.y += amount;
+  else if (dirName === "left") editCamera.x -= amount;
+  else if (dirName === "right") editCamera.x += amount;
+  clampEditCamera();
+  camera = { ...editCamera };
+}
+
+function startEditPan(dirName) {
+  if (!editMode || editPanDirs.includes(dirName)) return;
+  editPanDirs.push(dirName);
+  // 轻点一下也立即移动一点（约 1.2 格），长按则由逐帧逻辑持续移动
+  panEditCamera(dirName, (layout ? layout.cell : 54) * 1.2);
+}
+
+function stopEditPan(dirName) {
+  const i = editPanDirs.indexOf(dirName);
+  if (i >= 0) editPanDirs.splice(i, 1);
+}
+
+/** 每帧根据按住的 WASD 持续平移地图 */
+function updateEditPan(dt) {
+  if (!editMode || !editPanDirs.length) return;
+  const amount = (layout ? layout.cell : 54) * EDIT_PAN_SPEED * dt;
+  for (const dirName of editPanDirs) panEditCamera(dirName, amount);
 }
 
 /** 两个格子之间用 Bresenham 补齐路径，快速拖动也不会漏格 */
@@ -960,6 +953,20 @@ const KEY_DIRS = {
 function bindInput() {
   if (typeof window !== "undefined" && window.addEventListener) {
     window.addEventListener("keydown", (e) => {
+      // 编辑模式：WASD 移动地图（不再移动「我」）
+      if (editMode) {
+        const panDir = EDIT_PAN_KEYS[e.key];
+        if (panDir) {
+          e.preventDefault();
+          if (e.repeat) return;
+          startEditPan(panDir);
+          return;
+        }
+        if (e.key === "z" || e.key === "Z" || e.key === "r" || e.key === "R") {
+          e.preventDefault();
+        }
+        return;
+      }
       const dir = KEY_DIRS[e.key];
       if (dir) {
         e.preventDefault();
@@ -974,14 +981,28 @@ function bindInput() {
     });
 
     window.addEventListener("keyup", (e) => {
+      if (editMode) {
+        const panDir = EDIT_PAN_KEYS[e.key];
+        if (panDir) {
+          e.preventDefault();
+          stopEditPan(panDir);
+        }
+        return;
+      }
       const dir = KEY_DIRS[e.key];
       if (!dir) return;
       e.preventDefault();
       stopHold(dir);
     });
 
-    // 窗口失焦时停止连续移动，避免“粘键”
-    window.addEventListener("blur", clearHeld);
+    // 窗口失焦时停止连续移动/地图平移，避免“粘键”
+    window.addEventListener("blur", () => {
+      clearHeld();
+      if (editMode) {
+        editPanDirs.length = 0;
+        handleEditPointerUp();
+      }
+    });
   }
 
   if (els.undo && els.undo.addEventListener) els.undo.addEventListener("click", doUndo);
@@ -1125,7 +1146,8 @@ function frame(now) {
     const dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0.016;
     lastNow = now;
     if (editMode && editCamera) {
-      // 编辑模式：镜头由右键拖动控制，不自动跟随「我」
+      // 编辑模式：镜头由 WASD 控制，不自动跟随「我」
+      updateEditPan(dt);
       clampEditCamera();
       camera = { ...editCamera };
     } else {

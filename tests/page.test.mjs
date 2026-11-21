@@ -283,36 +283,40 @@ elements.game.dispatch("pointerup", { button: 0, clientX: paintB.x, clientY: pai
 check("左键长按拖动连续创建文字（自动补格）",
   [20, 21, 22, 23, 24].every((x) => editApi.getLevel().chars.some((c) => c.type === "菜" && c.x === x && c.y === 20)));
 
-// 右键按住拖动：平移地图，且不创建文字
+// 编辑模式：WASD 移动地图（右键拖动已移除）
 const camBefore = editApi.camera();
-const countBeforePan = editApi.getLevel().chars.length;
-const panStart = editApi.screenOfCell(30, 30);
-elements.game.dispatch("pointerdown", { button: 2, clientX: panStart.x, clientY: panStart.y, preventDefault() {}, pointerId: 2 });
-elements.game.dispatch("pointermove", { clientX: panStart.x + 60, clientY: panStart.y + 40, preventDefault() {}, pointerId: 2 });
-elements.game.dispatch("pointerup", { button: 2, clientX: panStart.x + 60, clientY: panStart.y + 40, preventDefault() {}, pointerId: 2 });
-const camAfter = editApi.camera();
-check("右键长按拖动平移地图", Math.abs(camBefore.x - camAfter.x - 60) < 2 && Math.abs(camBefore.y - camAfter.y - 40) < 2,
-  `${camBefore.x.toFixed(1)}->${camAfter.x.toFixed(1)}, ${camBefore.y.toFixed(1)}->${camAfter.y.toFixed(1)}`);
-check("右键拖动不会创建文字", editApi.getLevel().chars.length === countBeforePan);
-
-// 松开右键后继续移动鼠标，地图不应该再跟着动
+keyHandler({ key: "d", preventDefault() {} });
+const camD = editApi.camera();
+check("按 D 向右移动地图", camD.x > camBefore.x && Math.abs(camD.y - camBefore.y) < 0.5,
+  `${camBefore.x.toFixed(1)}->${camD.x.toFixed(1)}`);
+for (let i = 0; i < 5; i++) advance(50);
+const camHold = editApi.camera();
+check("按住 D 持续移动地图", camHold.x > camD.x, `${camD.x.toFixed(1)}->${camHold.x.toFixed(1)}`);
+keyupHandler({ key: "d", preventDefault() {} });
 const camStop = editApi.camera();
-const pmAfter = editApi.screenOfCell(30, 30);
-elements.game.dispatch("pointermove", {
-  clientX: pmAfter.x + 150, clientY: pmAfter.y + 90, buttons: 0, preventDefault() {},
-});
-check("松开右键后移动鼠标不再拖动地图",
-  JSON.stringify(editApi.camera()) === JSON.stringify(camStop));
+for (let i = 0; i < 5; i++) advance(50);
+check("松开 D 后地图停止移动", Math.abs(editApi.camera().x - camStop.x) < 0.5);
 
-// 极端情况：没有收到 pointerup，但移动事件的 buttons=0 也应结束拖动
-const pd = editApi.screenOfCell(40, 40);
-elements.game.dispatch("pointerdown", { button: 2, clientX: pd.x, clientY: pd.y, preventDefault() {}, pointerId: 3 });
-elements.game.dispatch("pointermove", { clientX: pd.x + 30, clientY: pd.y, buttons: 2, preventDefault() {}, pointerId: 3 });
-const camDef = editApi.camera();
-elements.game.dispatch("pointermove", { clientX: pd.x + 400, clientY: pd.y, buttons: 0, preventDefault() {}, pointerId: 3 });
-check("没收到 pointerup 时 buttons=0 也能结束拖动",
-  JSON.stringify(editApi.camera()) === JSON.stringify(camDef));
-elements.game.dispatch("pointerup", { button: 2, clientX: pd.x + 400, clientY: pd.y, preventDefault() {}, pointerId: 3 });
+const camW = editApi.camera();
+keyHandler({ key: "w", preventDefault() {} });
+keyupHandler({ key: "w", preventDefault() {} });
+check("按 W 向上移动地图", editApi.camera().y < camW.y, `${camW.y.toFixed(1)}->${editApi.camera().y.toFixed(1)}`);
+const camS = editApi.camera();
+keyHandler({ key: "s", preventDefault() {} });
+keyupHandler({ key: "s", preventDefault() {} });
+check("按 S 向下移动地图", editApi.camera().y > camS.y, `${camS.y.toFixed(1)}->${editApi.camera().y.toFixed(1)}`);
+const camA = editApi.camera();
+keyHandler({ key: "a", preventDefault() {} });
+keyupHandler({ key: "a", preventDefault() {} });
+check("按 A 向左移动地图", editApi.camera().x < camA.x, `${camA.x.toFixed(1)}->${editApi.camera().x.toFixed(1)}`);
+
+// 右键拖动不再平移地图
+const camRight0 = editApi.camera();
+const rightPt = editApi.screenOfCell(40, 40);
+elements.game.dispatch("pointerdown", { button: 2, clientX: rightPt.x, clientY: rightPt.y, preventDefault() {}, pointerId: 3 });
+elements.game.dispatch("pointermove", { clientX: rightPt.x + 120, clientY: rightPt.y + 80, preventDefault() {}, pointerId: 3 });
+elements.game.dispatch("pointerup", { button: 2, clientX: rightPt.x + 120, clientY: rightPt.y + 80, preventDefault() {}, pointerId: 3 });
+check("右键拖动不再平移地图", JSON.stringify(editApi.camera()) === JSON.stringify(camRight0));
 
 // 左键绘制同理：buttons=0 后不再继续放字
 editApi.selectChar("石");
