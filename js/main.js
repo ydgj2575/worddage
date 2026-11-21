@@ -826,24 +826,37 @@ function handleEditPointerDown(e) {
 /** 按住左键拖过格子 → 沿途连续放字；按住右键移动 → 平移地图 */
 function handleEditPointerMove(e) {
   if (!editMode) return;
-  if (editPanning && editLastPan) {
-    const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
-    const kx = width / (rect && rect.width ? rect.width : width);
-    const ky = height / (rect && rect.height ? rect.height : height);
-    const dx = (e.clientX - editLastPan.x) * kx;
-    const dy = (e.clientY - editLastPan.y) * ky;
-    editLastPan = { x: e.clientX, y: e.clientY };
-    if (!editCamera) editCamera = camera ? { ...camera } : null;
-    if (editCamera) {
-      editCamera.x -= dx;
-      editCamera.y -= dy;
-      clampEditCamera();
-      camera = { ...editCamera };
+  // 防御：某些浏览器右键松开时可能不派发 pointerup（或被右键菜单吞掉），
+  // 这里根据 buttons 位掩码兜底结束拖动/绘制，避免“松开后地图还跟着鼠标动”。
+  const buttons = e && typeof e.buttons === "number" ? e.buttons : null;
+  if (editPanning) {
+    if (buttons !== null && (buttons & 2) === 0) {
+      handleEditPointerUp(e);
+      return;
     }
-    if (e.preventDefault) e.preventDefault();
-    return;
+    if (editLastPan) {
+      const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+      const kx = width / (rect && rect.width ? rect.width : width);
+      const ky = height / (rect && rect.height ? rect.height : height);
+      const dx = (e.clientX - editLastPan.x) * kx;
+      const dy = (e.clientY - editLastPan.y) * ky;
+      editLastPan = { x: e.clientX, y: e.clientY };
+      if (!editCamera) editCamera = camera ? { ...camera } : null;
+      if (editCamera) {
+        editCamera.x -= dx;
+        editCamera.y -= dy;
+        clampEditCamera();
+        camera = { ...editCamera };
+      }
+      if (e.preventDefault) e.preventDefault();
+      return;
+    }
   }
   if (editPainting) {
+    if (buttons !== null && (buttons & 1) === 0) {
+      handleEditPointerUp(e);
+      return;
+    }
     const cell = editCellFromEvent(e);
     if (!cell) return;
     if (editLastCell && (cell.x !== editLastCell.x || cell.y !== editLastCell.y)) {
@@ -1062,10 +1075,16 @@ function bindInput() {
     canvas.addEventListener("contextmenu", (e) => {
       if (editMode && e.preventDefault) e.preventDefault();
     });
-    // 鼠标在画布外松开也要结束绘制/拖动
+    // 鼠标在画布外松开也要结束绘制/拖动（pointerup / mouseup 双保险）
     if (typeof window !== "undefined" && window.addEventListener) {
       window.addEventListener("pointerup", (e) => {
         if (editMode) handleEditPointerUp(e);
+      });
+      window.addEventListener("mouseup", () => {
+        if (editMode) handleEditPointerUp();
+      });
+      window.addEventListener("blur", () => {
+        if (editMode) handleEditPointerUp();
       });
     }
   }

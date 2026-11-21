@@ -295,6 +295,34 @@ check("右键长按拖动平移地图", Math.abs(camBefore.x - camAfter.x - 60) 
   `${camBefore.x.toFixed(1)}->${camAfter.x.toFixed(1)}, ${camBefore.y.toFixed(1)}->${camAfter.y.toFixed(1)}`);
 check("右键拖动不会创建文字", editApi.getLevel().chars.length === countBeforePan);
 
+// 松开右键后继续移动鼠标，地图不应该再跟着动
+const camStop = editApi.camera();
+const pmAfter = editApi.screenOfCell(30, 30);
+elements.game.dispatch("pointermove", {
+  clientX: pmAfter.x + 150, clientY: pmAfter.y + 90, buttons: 0, preventDefault() {},
+});
+check("松开右键后移动鼠标不再拖动地图",
+  JSON.stringify(editApi.camera()) === JSON.stringify(camStop));
+
+// 极端情况：没有收到 pointerup，但移动事件的 buttons=0 也应结束拖动
+const pd = editApi.screenOfCell(40, 40);
+elements.game.dispatch("pointerdown", { button: 2, clientX: pd.x, clientY: pd.y, preventDefault() {}, pointerId: 3 });
+elements.game.dispatch("pointermove", { clientX: pd.x + 30, clientY: pd.y, buttons: 2, preventDefault() {}, pointerId: 3 });
+const camDef = editApi.camera();
+elements.game.dispatch("pointermove", { clientX: pd.x + 400, clientY: pd.y, buttons: 0, preventDefault() {}, pointerId: 3 });
+check("没收到 pointerup 时 buttons=0 也能结束拖动",
+  JSON.stringify(editApi.camera()) === JSON.stringify(camDef));
+elements.game.dispatch("pointerup", { button: 2, clientX: pd.x + 400, clientY: pd.y, preventDefault() {}, pointerId: 3 });
+
+// 左键绘制同理：buttons=0 后不再继续放字
+editApi.selectChar("石");
+const pPaint = editApi.screenOfCell(30, 30);
+elements.game.dispatch("pointerdown", { button: 0, clientX: pPaint.x, clientY: pPaint.y, buttons: 1, preventDefault() {}, pointerId: 4 });
+const countPaint = editApi.getLevel().chars.length;
+elements.game.dispatch("pointermove", { clientX: pPaint.x + 160, clientY: pPaint.y, buttons: 0, preventDefault() {}, pointerId: 4 });
+check("左键松开后移动鼠标不再继续放字", editApi.getLevel().chars.length === countPaint);
+elements.game.dispatch("pointerup", { button: 0, clientX: pPaint.x + 160, clientY: pPaint.y, preventDefault() {}, pointerId: 4 });
+
 check("退出编辑模式", editApi.exit() === true && editApi.isActive() === false);
 check("退出后横幅恢复正常", elements.banner.textContent.includes("小地图"), elements.banner.textContent);
 

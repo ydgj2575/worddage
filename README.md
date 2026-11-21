@@ -109,7 +109,7 @@ npx serve .
 
 ```bash
 node tests/engine.test.mjs   # 引擎规则 / 关卡可解性 / 摄像机（69 项）
-node tests/page.test.mjs     # DOM 桩件页面冒烟测试（65 项）
+node tests/page.test.mjs     # DOM 桩件页面冒烟测试（68 项）
 # 或
 npm test
 ```
