@@ -273,6 +273,28 @@ elements["edit-palette"].dispatch("click", {
 check("第二行文字也能正常选中（委托）", editApi.tool().type === "木");
 check("选中的「木」能正常放置", editApi.place(14, 12) === true && game.charAt(14, 12)?.type === "木");
 
+// 左键按住拖过格子：沿途自动连续创建文字（跨越多个格子也补齐）
+editApi.selectChar("菜");
+const paintA = editApi.screenOfCell(20, 20);
+const paintB = editApi.screenOfCell(24, 20);
+elements.game.dispatch("pointerdown", { button: 0, clientX: paintA.x, clientY: paintA.y, preventDefault() {}, pointerId: 1 });
+elements.game.dispatch("pointermove", { clientX: paintB.x, clientY: paintB.y, preventDefault() {}, pointerId: 1 });
+elements.game.dispatch("pointerup", { button: 0, clientX: paintB.x, clientY: paintB.y, preventDefault() {}, pointerId: 1 });
+check("左键长按拖动连续创建文字（自动补格）",
+  [20, 21, 22, 23, 24].every((x) => editApi.getLevel().chars.some((c) => c.type === "菜" && c.x === x && c.y === 20)));
+
+// 右键按住拖动：平移地图，且不创建文字
+const camBefore = editApi.camera();
+const countBeforePan = editApi.getLevel().chars.length;
+const panStart = editApi.screenOfCell(30, 30);
+elements.game.dispatch("pointerdown", { button: 2, clientX: panStart.x, clientY: panStart.y, preventDefault() {}, pointerId: 2 });
+elements.game.dispatch("pointermove", { clientX: panStart.x + 60, clientY: panStart.y + 40, preventDefault() {}, pointerId: 2 });
+elements.game.dispatch("pointerup", { button: 2, clientX: panStart.x + 60, clientY: panStart.y + 40, preventDefault() {}, pointerId: 2 });
+const camAfter = editApi.camera();
+check("右键长按拖动平移地图", Math.abs(camBefore.x - camAfter.x - 60) < 2 && Math.abs(camBefore.y - camAfter.y - 40) < 2,
+  `${camBefore.x.toFixed(1)}->${camAfter.x.toFixed(1)}, ${camBefore.y.toFixed(1)}->${camAfter.y.toFixed(1)}`);
+check("右键拖动不会创建文字", editApi.getLevel().chars.length === countBeforePan);
+
 check("退出编辑模式", editApi.exit() === true && editApi.isActive() === false);
 check("退出后横幅恢复正常", elements.banner.textContent.includes("小地图"), elements.banner.textContent);
 

@@ -66,6 +66,11 @@ let audioCtx = null;
 let editMode = false;
 let editLevel = null;
 let editTool = { kind: "char", type: "刀" };
+let editCamera = null;      // 编辑模式下的自由摄像机（右键拖动画布）
+let editPainting = false;   // 左键按住连续放字
+let editLastCell = null;
+let editPanning = false;    // 右键按住拖动地图
+let editLastPan = null;
 const CUSTOM_LEVELS_KEY = "worddage:levels";
 const ORIGINAL_LEVELS = LEVELS.map((l) => JSON.parse(JSON.stringify(l)));
 
@@ -547,7 +552,14 @@ function applyEditPreview() {
   if (!editLevel) return;
   game.reset(editLevel);
   bestSteps = loadBest(game.level);
-  if (layout) camera = computeCamera(game, layout);
+  if (editMode) {
+    // 编辑模式下保持当前（可拖动/已平移的）镜头，不强制回中
+    if (!editCamera) editCamera = camera ? { ...camera } : layout ? computeCamera(game, layout) : null;
+    clampEditCamera();
+    if (editCamera) camera = { ...editCamera };
+  } else if (layout) {
+    camera = computeCamera(game, layout);
+  }
   syncHud();
 }
 
@@ -555,12 +567,18 @@ function enterEditMode() {
   if (editMode) return false;
   clearHeld();
   editLevel = cloneLevel(game.level);
+  editCamera = camera ? { x: camera.x, y: camera.y } : layout ? computeCamera(game, layout) : null;
+  editPainting = false;
+  editLastCell = null;
+  editPanning = false;
+  editLastPan = null;
   editMode = true;
   hideWin();
   if (els.editor) els.editor.classList.remove("hidden");
+  if (canvas && canvas.style) canvas.style.cursor = "crosshair";
   editButtonState();
   buildPalette();
-  editStatus("选择工具后点击画布格子；「保存布局」后刷新仍保留（本机）");
+  editStatus("左键点/按住拖动连续放字或墙；右键按住拖动平移地图；「保存布局」后刷新仍保留");
   syncHud();
   return true;
 }
@@ -569,7 +587,13 @@ function exitEditMode() {
   if (!editMode) return false;
   editMode = false;
   editLevel = null;
+  editPainting = false;
+  editLastCell = null;
+  editPanning = false;
+  editLastPan = null;
+  editCamera = null;
   if (els.editor) els.editor.classList.add("hidden");
+  if (canvas && canvas.style) canvas.style.cursor = "grab";
   editButtonState();
   game.reset(LEVELS[currentLevelIndex]);
   bestSteps = loadBest(game.level);
@@ -737,17 +761,143 @@ function showImportJSON() {
   }
 }
 
-function handleEditPointer(e) {
-  if (!layout || !editLevel) return;
+/** 把当前编辑镜头夹在在世界范围内 */
+function clampEditCamera() {
+  if (!editCamera || !layout) return;
+  const maxX = Math.max(0, layout.worldW - width);
+  const maxY = Math.max(0, layout.worldH - height);
+  editCamera.x = Math.max(0, Math.min(editCamera.x, maxX));
+  editCamera.y = Math.max(0, Math.min(editCamera.y, maxY));
+}
+
+/** 鼠标/触摸位置 → 格子坐标（考虑编辑镜头的平移） */
+function editCellFromEvent(e) {
+  if (!layout) return null;
   const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
   const cw = rect && rect.width ? rect.width : width;
   const ch = rect && rect.height ? rect.height : height;
   const sx = ((e.clientX - (rect ? rect.left : 0)) / cw) * width;
   const sy = ((e.clientY - (rect ? rect.top : 0)) / ch) * height;
-  const cam = camera || computeCamera(game, layout);
-  const x = Math.floor((sx + cam.x) / layout.cell);
-  const y = Math.floor((sy + cam.y) / layout.cell);
-  editPlaceAt(x, y);
+  const cam = editMode && editCamera ? editCamera : camera || computeCamera(game, layout);
+  return { x: Math.floor((sx + cam.x) / layout.cell), y: Math.floor((sy + cam.y) / layout.cell) };
+}
+
+/** 左键按下：开始连续放字；右键按下：开始拖动地图 */
+function handleEditPointerDown(e) {
+  if (!layout || !editLevel) return;
+  const button = e.button === undefined ? 0 : e.button;
+  if (button === 2) {
+    editPanning = true;
+    editPainting = false;
+    editLastPan = { x: e.clientX, y: e.clientY };
+    if (canvas.setPointerCapture && e.pointerId !== undefined) {
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* 忽略 */
+      }
+    }
+    if (e.preventDefault) e.preventDefault();
+    editStatus("右键拖动平移地图中…松开结束");
+    if (canvas && canvas.style) canvas.style.cursor = "grabbing";
+    return;
+  }
+  if (button !== 0) return;
+  const cell = editCellFromEvent(e);
+  if (!cell) return;
+  if (editTool.kind === "char" || editTool.kind === "erase") {
+    editPainting = true;
+    editLastCell = cell;
+    editPlaceAt(cell.x, cell.y);
+    if (canvas.setPointerCapture && e.pointerId !== undefined) {
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* 忽略 */
+      }
+    }
+  } else {
+    // 玩家起点 / 门：只放一次
+    editPlaceAt(cell.x, cell.y);
+  }
+  if (e.preventDefault) e.preventDefault();
+}
+
+/** 按住左键拖过格子 → 沿途连续放字；按住右键移动 → 平移地图 */
+function handleEditPointerMove(e) {
+  if (!editMode) return;
+  if (editPanning && editLastPan) {
+    const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+    const kx = width / (rect && rect.width ? rect.width : width);
+    const ky = height / (rect && rect.height ? rect.height : height);
+    const dx = (e.clientX - editLastPan.x) * kx;
+    const dy = (e.clientY - editLastPan.y) * ky;
+    editLastPan = { x: e.clientX, y: e.clientY };
+    if (!editCamera) editCamera = camera ? { ...camera } : null;
+    if (editCamera) {
+      editCamera.x -= dx;
+      editCamera.y -= dy;
+      clampEditCamera();
+      camera = { ...editCamera };
+    }
+    if (e.preventDefault) e.preventDefault();
+    return;
+  }
+  if (editPainting) {
+    const cell = editCellFromEvent(e);
+    if (!cell) return;
+    if (editLastCell && (cell.x !== editLastCell.x || cell.y !== editLastCell.y)) {
+      paintLine(editLastCell, cell);
+    }
+    editLastCell = cell;
+    if (e.preventDefault) e.preventDefault();
+  }
+}
+
+function handleEditPointerUp(e) {
+  if (!editMode) return;
+  editPainting = false;
+  editLastCell = null;
+  editPanning = false;
+  editLastPan = null;
+  if (canvas && canvas.style) canvas.style.cursor = "crosshair";
+  if (canvas.releasePointerCapture && e && e.pointerId !== undefined) {
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch {
+      /* 忽略 */
+    }
+  }
+}
+
+/** 两个格子之间用 Bresenham 补齐路径，快速拖动也不会漏格 */
+function paintLine(from, to) {
+  let x0 = from.x;
+  let y0 = from.y;
+  const x1 = to.x;
+  const y1 = to.y;
+  const dx = Math.abs(x1 - x0);
+  const sx = x0 < x1 ? 1 : -1;
+  const dy = -Math.abs(y1 - y0);
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  const cells = [];
+  for (;;) {
+    cells.push({ x: x0, y: y0 });
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x0 += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+  for (let i = 1; i < cells.length; i++) {
+    editPlaceAt(cells[i].x, cells[i].y);
+  }
 }
 
 const editApi = {
@@ -771,6 +921,12 @@ const editApi = {
   status: () => (els.editStatus ? els.editStatus.textContent : ""),
   paletteTypes: () => Object.keys(TYPE_INFO).filter((t) => t !== "我" && t !== "门"),
   tool: () => ({ ...editTool }),
+  camera: () => (camera ? { x: camera.x, y: camera.y } : null),
+  screenOfCell: (x, y) => {
+    if (!layout) return null;
+    const cam = camera || computeCamera(game, layout);
+    return { x: (x + 0.5) * layout.cell - cam.x, y: (y + 0.5) * layout.cell - cam.y };
+  },
 };
 
 const KEY_DIRS = {
@@ -869,18 +1025,25 @@ function bindInput() {
     btn.addEventListener("pointerleave", stop);
   });
 
-  // 画布滑动
+  // 画布操作
   if (canvas && canvas.addEventListener) {
     let start = null;
     canvas.addEventListener("pointerdown", (e) => {
       if (editMode) {
-        handleEditPointer(e);
+        handleEditPointerDown(e);
         return;
       }
       start = { x: e.clientX, y: e.clientY };
       ensureAudio();
     });
+    canvas.addEventListener("pointermove", (e) => {
+      if (editMode) handleEditPointerMove(e);
+    });
     canvas.addEventListener("pointerup", (e) => {
+      if (editMode) {
+        handleEditPointerUp(e);
+        return;
+      }
       if (!start) return;
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
@@ -889,9 +1052,22 @@ function bindInput() {
       if (Math.abs(dx) > Math.abs(dy)) doMove(dx > 0 ? "right" : "left");
       else doMove(dy > 0 ? "down" : "up");
     });
-    canvas.addEventListener("pointercancel", () => {
+    canvas.addEventListener("pointercancel", (e) => {
+      if (editMode) {
+        handleEditPointerUp(e);
+        return;
+      }
       start = null;
     });
+    canvas.addEventListener("contextmenu", (e) => {
+      if (editMode && e.preventDefault) e.preventDefault();
+    });
+    // 鼠标在画布外松开也要结束绘制/拖动
+    if (typeof window !== "undefined" && window.addEventListener) {
+      window.addEventListener("pointerup", (e) => {
+        if (editMode) handleEditPointerUp(e);
+      });
+    }
   }
 }
 
@@ -929,7 +1105,13 @@ function frame(now) {
   if (ctx && layout) {
     const dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0.016;
     lastNow = now;
-    updateCamera(dt);
+    if (editMode && editCamera) {
+      // 编辑模式：镜头由右键拖动控制，不自动跟随「我」
+      clampEditCamera();
+      camera = { ...editCamera };
+    } else {
+      updateCamera(dt);
+    }
 
     // 按住连续移动：按 INPUT_CONFIG.holdRepeatMs 的间隔不断走格
     const heldDir = activeHeldDir();
